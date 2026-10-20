@@ -20,6 +20,8 @@ class AccountResponse(BaseModel):
 class TransactionResponse(BaseModel):
     id: int
     account_id: int
+    account_name: Optional[str] = None
+    account_type: Optional[str] = None
     amount: Decimal
     date: datetime
     description: str
@@ -28,8 +30,14 @@ class TransactionResponse(BaseModel):
     category: Optional[str] = None
     type: TransactionType
     pluggy_transaction_id: str
+    is_ignored: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TransactionUpdateSchema(BaseModel):
+    category: Optional[str] = None
+    is_ignored: Optional[bool] = None
 
 
 class PaginatedTransactionsResponse(BaseModel):
@@ -45,11 +53,94 @@ class CategoryExpense(BaseModel):
     total: float
 
 
+class FutureCommitmentItem(BaseModel):
+    month: str
+    label: str
+    total: float
+    count: int
+
+
+class SalaryProjection(BaseModel):
+    salary: float
+    bank_balance: float
+    credit_balance: float
+    current_bill: float
+    recurring_bills_total: float = 0.0
+    recurring_bills_pending: float = 0.0
+    is_bill_custom: bool = False
+    bill_closing_day: int = 2
+    bill_due_day: int = 7
+    bill_cycle_start: str = ""
+    bill_cycle_end: str = ""
+    total_available: float
+    free_balance: float
+    commitment_percentage: float
+    daily_budget: float
+    status: str  # "CRITICAL", "WARNING", "HEALTHY"
+
+
+class RecurringBillCreate(BaseModel):
+    name: str
+    amount: float
+    due_day: int = 10
+    category: str = "Outros"
+
+
+class RecurringBillUpdate(BaseModel):
+    name: Optional[str] = None
+    amount: Optional[float] = None
+    due_day: Optional[int] = None
+    category: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class RecurringBillResponse(BaseModel):
+    id: int
+    name: str
+    amount: float
+    due_day: int
+    category: str
+    is_active: bool
+    is_paid_this_month: bool = False
+    created_at: Optional[datetime] = None
+
+
+class RecurringBillsSummary(BaseModel):
+    total_monthly: float
+    total_paid: float
+    total_pending: float
+    items: List[RecurringBillResponse]
+
+
+class SalaryUpdateRequest(BaseModel):
+    salary: float
+
+
+class CardSettings(BaseModel):
+    closing_day: int = 2
+    due_day: int = 7
+    custom_bill_amount: Optional[float] = None
+
+
+class CardSettingsUpdateRequest(BaseModel):
+    closing_day: Optional[int] = None
+    due_day: Optional[int] = None
+    custom_bill_amount: Optional[float] = None
+    use_auto_bill: Optional[bool] = False
+
+
 class DashboardMetricsResponse(BaseModel):
+    bank_balance: float
+    credit_balance: float
+    net_balance: float
     current_balance: float
     monthly_income: float
     monthly_expenses: float
+    future_commitments_total: float
+    future_commitments: List[FutureCommitmentItem]
     expenses_by_category: List[CategoryExpense]
+    accounts: List[AccountResponse]
+    salary_projection: SalaryProjection
 
 
 class SyncResponse(BaseModel):

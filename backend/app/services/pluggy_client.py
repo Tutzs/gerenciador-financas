@@ -156,26 +156,41 @@ class PluggyClient:
         """
         2. Bate na rota v2 de transações da Pluggy:
         GET https://api.pluggy.ai/v2/transactions?accountId={pluggy_account_id}
-        percorrendo todas as páginas via cursor (`next` / `after`).
+        percorrendo todas as páginas via cursor (`next`).
         """
         all_transactions: List[Dict[str, Any]] = []
-        after_cursor: Optional[str] = None
+        next_query: Optional[str] = None
+
+        initial_params: Dict[str, Any] = {
+            "accountId": pluggy_account_id,
+        }
+        if date_from:
+            initial_params["from"] = date_from
+        if date_to:
+            initial_params["to"] = date_to
 
         while True:
-            params: Dict[str, Any] = {
-                "accountId": pluggy_account_id,
-            }
-            if date_from:
-                params["from"] = date_from
-            if date_to:
-                params["to"] = date_to
-            if after_cursor:
-                params["after"] = after_cursor
+            if next_query:
+                if next_query.startswith("?"):
+                    request_url = f"{self.BASE_URL}/v2/transactions{next_query}"
+                    request_params = None
+                elif next_query.startswith("http"):
+                    request_url = next_query
+                    request_params = None
+                else:
+                    request_url = f"{self.BASE_URL}/v2/transactions"
+                    request_params = {
+                        "accountId": pluggy_account_id,
+                        "after": next_query,
+                    }
+            else:
+                request_url = f"{self.BASE_URL}/v2/transactions"
+                request_params = initial_params
 
             resp = requests.get(
-                f"{self.BASE_URL}/v2/transactions",
+                request_url,
                 headers=self.headers,
-                params=params,
+                params=request_params,
                 timeout=30,
             )
             if resp.status_code != 200:
@@ -188,8 +203,8 @@ class PluggyClient:
             results = payload.get("results", [])
             all_transactions.extend(results)
 
-            after_cursor = payload.get("next")
-            if not after_cursor:
+            next_query = payload.get("next")
+            if not next_query:
                 break
 
         return all_transactions

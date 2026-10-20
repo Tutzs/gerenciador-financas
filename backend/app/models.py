@@ -53,10 +53,27 @@ class Transaction(Base):
     category = Column(String(120), nullable=True, index=True)
     type = Column(Enum(TransactionType, name="transaction_type_enum"), nullable=False)
     pluggy_transaction_id = Column(String(100), unique=True, nullable=False, index=True)
+    is_ignored = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     account = relationship("Account", back_populates="transactions")
 
     __table_args__ = (
         Index("ix_transactions_date_category", "date", "category"),
+    )
+
+
+class RecurringBill(Base):
+    __tablename__ = "recurring_bills"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    amount = Column(Numeric(14, 2), nullable=False)
+    due_day = Column(Integer, nullable=False, default=10)
+    category = Column(String(120), nullable=False, default="Outros")
+    is_active = Column(Integer, nullable=False, default=1)
+    last_paid_month = Column(String(7), nullable=True)  # e.g. "2026-10"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

@@ -11,9 +11,12 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
-# Se estiver no Windows rodando fora do Docker (sem host 'db'), usa SQLite local
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+# Se estiver fora do Docker (sem host 'db'), usa SQLite local na pasta backend
 if not DATABASE_URL or "@db:" in DATABASE_URL:
-    DATABASE_URL = "sqlite:///./finance.db"
+    db_file = BACKEND_DIR / "finance.db"
+    DATABASE_URL = f"sqlite:///{db_file}"
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=connect_args)

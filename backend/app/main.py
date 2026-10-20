@@ -1,19 +1,37 @@
+import calendar
 import math
+import os
+import requests
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func
+from fastapi.responses import HTMLResponse
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 
 from app.database import Base, engine, get_db
-from app.models import Account, Transaction, TransactionType
+from app.models import Account, Transaction, TransactionType, RecurringBill
 from app.schemas import (
+    AccountResponse,
+    CardSettings,
+    CardSettingsUpdateRequest,
     CategoryExpense,
     DashboardMetricsResponse,
+    FutureCommitmentItem,
     PaginatedTransactionsResponse,
+    RecurringBillCreate,
+    RecurringBillResponse,
+    RecurringBillsSummary,
+    RecurringBillUpdate,
+    SalaryProjection,
+    SalaryUpdateRequest,
     SyncResponse,
+    TransactionResponse,
+    TransactionUpdateSchema,
 )
 from app.services.pluggy_client import PluggyClient, PluggyClientError
 
@@ -75,34 +93,111 @@ def sync_pluggy_data(
         ) from exc
 
 
+@app.get("/api/v1/categories")
+def get_categories(db: Session = Depends(get_db)):
+    """Retorna todas as categorias únicas cadastradas no banco."""
+    rows = (
+        db.query(Transaction.category)
+        .filter(Transaction.category.isnot(None))
+        .distinct()
+        .order_by(Transaction.category.asc())
+        .all()
+    )
+    categories = [r[0] for r in rows if r[0]]
+    defaults = [
+        "Alimentação",
+        "Assinaturas",
+        "Compras",
+        "Educação",
+        "Lazer",
+        "Moradia",
+        "Saúde",
+        "Serviços",
+        "Supermercado",
+        "Transporte",
+        "Transferências",
+        "Outros",
+    ]
+    all_cats = sorted(list(set(categories + defaults)))
+    return {"categories": all_cats}
+
+
 @app.get("/api/v1/transactions", response_model=PaginatedTransactionsResponse)
 def list_transactions(
     page: int = Query(1, ge=1, description="Número da página"),
     page_size: int = Query(20, ge=1, le=100, description="Itens por página"),
+    account_id: Optional[int] = Query(None, description="Filtro por conta"),
+    period: Optional[str] = Query("current_month", description="Filtro de período: 'current_month', 'future', 'all'"),
+    search: Optional[str] = Query(None, description="Busca por descrição ou estabelecimento"),
     start_date: Optional[datetime] = Query(None, description="Filtro data inicial (ISO)"),
     end_date: Optional[datetime] = Query(None, description="Filtro data final (ISO)"),
     category: Optional[str] = Query(None, description="Filtro por categoria"),
     db: Session = Depends(get_db),
 ):
-    """Listagem paginada das transações com filtros opcionais de data e categoria."""
+    """Listagem paginada das transações com filtros avançados."""
     query = db.query(Transaction)
 
-    if start_date:
+    now = datetime.now(timezone.utc)
+    target_year = now.year
+    target_month = now.month
+    if target_month == 12:
+        start_of_next_month = datetime(target_year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        start_of_next_month = datetime(target_year, target_month + 1, 1, tzinfo=timezone.utc)
+
+    # Filtro de período inteligente
+    if period == "current_month":
+        # Não traz parcelas futuras no extrato principal
+        query = query.filter(Transaction.date < start_of_next_month)
+    elif period == "future":
+        # Apenas parcelas dos próximos meses
+        query = query.filter(Transaction.date >= start_of_next_month)
+
+    if isinstance(account_id, int):
+        query = query.filter(Transaction.account_id == account_id)
+
+    if isinstance(search, str) and search.strip():
+        search_term = f"%{search.strip()}%"
+        query = query.filter(
+            (Transaction.description.ilike(search_term))
+            | (Transaction.merchant_name.ilike(search_term))
+        )
+
+    if start_date and isinstance(start_date, datetime):
         query = query.filter(Transaction.date >= start_date)
-    if end_date:
+    if end_date and isinstance(end_date, datetime):
         query = query.filter(Transaction.date <= end_date)
-    if category:
+    if category and isinstance(category, str) and category.strip():
         query = query.filter(Transaction.category.ilike(f"%{category}%"))
 
     total = query.count()
     total_pages = max(1, math.ceil(total / page_size))
 
-    items = (
+    tx_rows = (
         query.order_by(Transaction.date.desc(), Transaction.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
+
+    items = [
+        TransactionResponse(
+            id=t.id,
+            account_id=t.account_id,
+            account_name=t.account.name if t.account else "Conta",
+            account_type=t.account.type if t.account else "BANK",
+            amount=t.amount,
+            date=t.date,
+            description=t.description,
+            merchant_name=t.merchant_name,
+            merchant_cnpj=t.merchant_cnpj,
+            category=t.category,
+            type=t.type,
+            pluggy_transaction_id=t.pluggy_transaction_id,
+            is_ignored=bool(t.is_ignored),
+        )
+        for t in tx_rows
+    ]
 
     return PaginatedTransactionsResponse(
         items=items,
@@ -113,6 +208,77 @@ def list_transactions(
     )
 
 
+@app.patch("/api/v1/transactions/{transaction_id}", response_model=TransactionResponse)
+def update_transaction(
+    transaction_id: int,
+    payload: TransactionUpdateSchema,
+    db: Session = Depends(get_db),
+):
+    """Atualiza a categoria ou o status de exclusão de uma transação."""
+    tx = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transação não encontrada.")
+
+    if payload.category is not None:
+        tx.category = payload.category.strip()
+    if payload.is_ignored is not None:
+        tx.is_ignored = 1 if payload.is_ignored else 0
+
+    db.commit()
+    db.refresh(tx)
+
+    return TransactionResponse(
+        id=tx.id,
+        account_id=tx.account_id,
+        account_name=tx.account.name if tx.account else "Conta",
+        account_type=tx.account.type if tx.account else "BANK",
+        amount=tx.amount,
+        date=tx.date,
+        description=tx.description,
+        merchant_name=tx.merchant_name,
+        merchant_cnpj=tx.merchant_cnpj,
+        category=tx.category,
+        type=tx.type,
+        pluggy_transaction_id=tx.pluggy_transaction_id,
+        is_ignored=bool(tx.is_ignored),
+    )
+
+
+def get_credit_cycle_dates(closing_day: int, ref_date: Optional[datetime] = None):
+    """
+    Calcula as datas de início e fim do ciclo de fatura atual com base no dia de fechamento.
+    Ex: closing_day = 2.
+    Em 20/10/2026:
+      - início do ciclo: 02/10/2026 04:00:00 (após o fechamento anterior)
+      - fim do ciclo: 02/11/2026 23:59:59 (fechamento atual)
+    """
+    if not ref_date:
+        ref_date = datetime.now(timezone.utc)
+
+    year = ref_date.year
+    month = ref_date.month
+    day = ref_date.day
+
+    def safe_date(y, m, d, hour=23, minute=59, second=59):
+        max_d = calendar.monthrange(y, m)[1]
+        return datetime(y, m, min(d, max_d), hour, minute, second, tzinfo=timezone.utc)
+
+    if day >= closing_day:
+        last_closing = safe_date(year, month, closing_day, 4, 0, 0)
+        if month == 12:
+            next_closing = safe_date(year + 1, 1, closing_day, 23, 59, 59)
+        else:
+            next_closing = safe_date(year, month + 1, closing_day, 23, 59, 59)
+    else:
+        next_closing = safe_date(year, month, closing_day, 23, 59, 59)
+        if month == 1:
+            last_closing = safe_date(year - 1, 12, closing_day, 4, 0, 0)
+        else:
+            last_closing = safe_date(year, month - 1, closing_day, 4, 0, 0)
+
+    return last_closing, next_closing
+
+
 @app.get("/api/v1/metrics", response_model=DashboardMetricsResponse)
 def get_dashboard_metrics(
     month: Optional[int] = Query(None, ge=1, le=12, description="Mês de referência (1-12)"),
@@ -120,15 +286,18 @@ def get_dashboard_metrics(
     db: Session = Depends(get_db),
 ):
     """
-    Retorna métricas agregadas para o dashboard:
-    - Saldo atual somado das contas
-    - Receitas do mês atual (ou mês/ano informado)
-    - Despesas do mês atual (ou mês/ano informado)
+    Retorna métricas financeiras reais e segregadas:
+    - Saldo em contas correntes / poupança (dinheiro disponível)
+    - Fatura do cartão de crédito (compromisso / fatura)
+    - Patrimônio Líquido Real (Saldo em contas - Cartão)
+    - Receitas e Despesas do mês (excluindo transações ignoradas)
+    - Compromissos futuros de faturas parceladas
     - Despesas agrupadas por categoria
+    - Lista de contas vinculadas
     """
     now = datetime.now(timezone.utc)
-    target_year = year or now.year
-    target_month = month or now.month
+    target_year = year if isinstance(year, int) else now.year
+    target_month = month if isinstance(month, int) else now.month
 
     start_of_month = datetime(target_year, target_month, 1, tzinfo=timezone.utc)
     if target_month == 12:
@@ -136,16 +305,33 @@ def get_dashboard_metrics(
     else:
         start_of_next_month = datetime(target_year, target_month + 1, 1, tzinfo=timezone.utc)
 
-    current_balance = (
-        db.query(func.coalesce(func.sum(Account.balance), 0)).scalar() or 0
+    # 1. Saldos segregados por tipo de conta
+    bank_balance = (
+        db.query(func.coalesce(func.sum(Account.balance), 0))
+        .filter(Account.type == "BANK")
+        .scalar()
+        or 0
+    )
+    credit_balance = (
+        db.query(func.coalesce(func.sum(Account.balance), 0))
+        .filter(Account.type == "CREDIT")
+        .scalar()
+        or 0
     )
 
+    bank_float = float(bank_balance)
+    credit_float = float(credit_balance)
+    net_balance = bank_float - credit_float
+    current_balance = bank_float + credit_float
+
+    # 2. Receitas e Despesas do mês selecionado (excluindo transferências ignoradas)
     monthly_income = (
         db.query(func.coalesce(func.sum(Transaction.amount), 0))
         .filter(
             Transaction.type == TransactionType.CREDIT,
             Transaction.date >= start_of_month,
             Transaction.date < start_of_next_month,
+            Transaction.is_ignored == 0,
         )
         .scalar()
         or 0
@@ -157,11 +343,13 @@ def get_dashboard_metrics(
             Transaction.type == TransactionType.DEBIT,
             Transaction.date >= start_of_month,
             Transaction.date < start_of_next_month,
+            Transaction.is_ignored == 0,
         )
         .scalar()
         or 0
     )
 
+    # 3. Despesas por Categoria no mês
     category_rows = (
         db.query(
             func.coalesce(Transaction.category, "Outros").label("category"),
@@ -171,6 +359,7 @@ def get_dashboard_metrics(
             Transaction.type == TransactionType.DEBIT,
             Transaction.date >= start_of_month,
             Transaction.date < start_of_next_month,
+            Transaction.is_ignored == 0,
         )
         .group_by(func.coalesce(Transaction.category, "Outros"))
         .order_by(func.sum(Transaction.amount).desc())
@@ -182,9 +371,612 @@ def get_dashboard_metrics(
         for row in category_rows
     ]
 
-    return DashboardMetricsResponse(
-        current_balance=float(current_balance),
-        monthly_income=float(monthly_income),
-        monthly_expenses=float(monthly_expenses),
-        expenses_by_category=expenses_by_category,
+    # 4. Faturas / Compromissos futuros (parcelas do cartão com data posterior ao mês atual)
+    future_rows = (
+        db.query(Transaction)
+        .filter(
+            Transaction.type == TransactionType.DEBIT,
+            Transaction.date >= start_of_next_month,
+            Transaction.is_ignored == 0,
+        )
+        .order_by(Transaction.date.asc())
+        .all()
     )
+
+    # Agrupa por mês futuro
+    month_names = {
+        1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+        5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+        9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
+    }
+
+    future_by_month_dict = {}
+    future_commitments_total = 0.0
+
+    for f_tx in future_rows:
+        amount_float = float(f_tx.amount)
+        future_commitments_total += amount_float
+        m_key = f_tx.date.strftime("%Y-%m")
+        if m_key not in future_by_month_dict:
+            label = f"{month_names.get(f_tx.date.month, '')}/{f_tx.date.year}"
+            future_by_month_dict[m_key] = {"month": m_key, "label": label, "total": 0.0, "count": 0}
+        future_by_month_dict[m_key]["total"] += amount_float
+        future_by_month_dict[m_key]["count"] += 1
+
+    future_commitments = [
+        FutureCommitmentItem(
+            month=item["month"],
+            label=item["label"],
+            total=round(item["total"], 2),
+            count=item["count"],
+        )
+        for item in sorted(future_by_month_dict.values(), key=lambda x: x["month"])
+    ]
+
+    # 5. Lista de contas cadastradas
+    accounts_db = db.query(Account).order_by(Account.id.asc()).all()
+    accounts_response = [
+        AccountResponse(
+            id=acc.id,
+            name=acc.name,
+            type=acc.type,
+            balance=acc.balance,
+            currency=acc.currency,
+            pluggy_account_id=acc.pluggy_account_id,
+        )
+        for acc in accounts_db
+    ]
+
+    # 6. Configurações de Cartão e Projeção Dinâmica
+    try:
+        settings_rows = db.execute(text("SELECT key, value FROM app_settings")).fetchall()
+        settings_map = {row[0]: row[1] for row in settings_rows}
+    except Exception:
+        settings_map = {}
+
+    user_salary = float(settings_map.get("user_salary", 1500.0) or 1500.0)
+    card_closing_day = int(settings_map.get("card_closing_day", 2) or 2)
+    card_due_day = int(settings_map.get("card_due_day", 7) or 7)
+    custom_bill_str = settings_map.get("custom_bill_amount")
+    custom_bill_amount = float(custom_bill_str) if custom_bill_str and float(custom_bill_str) > 0 else None
+
+    # Ciclo da fatura
+    last_closing, next_closing = get_credit_cycle_dates(card_closing_day, now)
+
+    # Busca transações de cartão no ciclo
+    credit_account_ids = [acc.id for acc in accounts_db if acc.type == "CREDIT"]
+    dynamic_bill = 0.0
+    if credit_account_ids:
+        # Débitos do ciclo
+        cycle_debits = (
+            db.query(func.coalesce(func.sum(Transaction.amount), 0))
+            .filter(
+                Transaction.account_id.in_(credit_account_ids),
+                Transaction.type == TransactionType.DEBIT,
+                Transaction.date > last_closing,
+                Transaction.date <= next_closing,
+                Transaction.is_ignored == 0,
+            )
+            .scalar()
+            or 0
+        )
+        # Créditos/estornos do ciclo (excluindo pagamentos de fatura)
+        cycle_credits = (
+            db.query(func.coalesce(func.sum(Transaction.amount), 0))
+            .filter(
+                Transaction.account_id.in_(credit_account_ids),
+                Transaction.type == TransactionType.CREDIT,
+                Transaction.date > last_closing,
+                Transaction.date <= next_closing,
+                Transaction.is_ignored == 0,
+                ~Transaction.description.ilike("%pagamento%"),
+            )
+            .scalar()
+            or 0
+        )
+        dynamic_bill = max(0.0, float(cycle_debits) - float(cycle_credits))
+
+    if custom_bill_amount is not None:
+        current_bill = custom_bill_amount
+        is_bill_custom = True
+    else:
+        current_bill = dynamic_bill
+        is_bill_custom = False
+
+    # 7. Contas Fixas / Recorrentes
+    curr_ym = now.strftime("%Y-%m")
+    active_recurring = (
+        db.query(RecurringBill).filter(RecurringBill.is_active == 1).all()
+    )
+    rec_total = sum(float(b.amount) for b in active_recurring)
+    rec_paid = sum(
+        float(b.amount) for b in active_recurring if b.last_paid_month == curr_ym
+    )
+    rec_pending = max(0.0, rec_total - rec_paid)
+
+    total_commitments = current_bill + rec_total
+    total_available = user_salary + bank_float
+    free_balance = total_available - total_commitments
+    if total_available > 0:
+        commitment_pct = min(
+            100.0, max(0.0, (total_commitments / total_available) * 100.0)
+        )
+    else:
+        commitment_pct = 100.0
+
+    daily_budget = max(0.0, free_balance / 30.0)
+
+    if free_balance <= 0:
+        salary_status = "CRITICAL"
+    elif commitment_pct >= 70.0:
+        salary_status = "WARNING"
+    else:
+        salary_status = "HEALTHY"
+
+    salary_projection = SalaryProjection(
+        salary=round(user_salary, 2),
+        bank_balance=round(bank_float, 2),
+        credit_balance=round(credit_float, 2),
+        current_bill=round(current_bill, 2),
+        recurring_bills_total=round(rec_total, 2),
+        recurring_bills_pending=round(rec_pending, 2),
+        is_bill_custom=is_bill_custom,
+        bill_closing_day=card_closing_day,
+        bill_due_day=card_due_day,
+        bill_cycle_start=last_closing.strftime("%d/%m"),
+        bill_cycle_end=next_closing.strftime("%d/%m"),
+        total_available=round(total_available, 2),
+        free_balance=round(free_balance, 2),
+        commitment_percentage=round(commitment_pct, 1),
+        daily_budget=round(daily_budget, 2),
+        status=salary_status,
+    )
+
+    return DashboardMetricsResponse(
+        bank_balance=round(bank_float, 2),
+        credit_balance=round(credit_float, 2),
+        net_balance=round(net_balance, 2),
+        current_balance=round(current_balance, 2),
+        monthly_income=round(float(monthly_income), 2),
+        monthly_expenses=round(float(monthly_expenses), 2),
+        future_commitments_total=round(future_commitments_total, 2),
+        future_commitments=future_commitments,
+        expenses_by_category=expenses_by_category,
+        accounts=accounts_response,
+        salary_projection=salary_projection,
+    )
+
+
+@app.post("/api/v1/settings/salary", response_model=SalaryProjection)
+def update_salary(payload: SalaryUpdateRequest, db: Session = Depends(get_db)):
+    """Salva o salário mensal do usuário e recalcula as projeções."""
+    new_salary = max(0.0, float(payload.salary))
+    try:
+        db.execute(
+            text(
+                "INSERT INTO app_settings (key, value) VALUES ('user_salary', :val) "
+                "ON CONFLICT(key) DO UPDATE SET value = :val"
+            ),
+            {"val": str(new_salary)},
+        )
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar salário: {str(e)}")
+
+    metrics = get_dashboard_metrics(db=db)
+    return metrics.salary_projection
+
+
+@app.get("/api/v1/settings/card", response_model=CardSettings)
+def get_card_settings(db: Session = Depends(get_db)):
+    """Retorna as configurações do cartão (dia de fechamento, vencimento e fatura customizada)."""
+    try:
+        rows = db.execute(text("SELECT key, value FROM app_settings")).fetchall()
+        settings_map = {row[0]: row[1] for row in rows}
+    except Exception:
+        settings_map = {}
+
+    closing_day = int(settings_map.get("card_closing_day", 2) or 2)
+    due_day = int(settings_map.get("card_due_day", 7) or 7)
+    custom_bill_str = settings_map.get("custom_bill_amount")
+    custom_bill = float(custom_bill_str) if custom_bill_str and float(custom_bill_str) > 0 else None
+
+    return CardSettings(
+        closing_day=closing_day,
+        due_day=due_day,
+        custom_bill_amount=custom_bill,
+    )
+
+
+@app.post("/api/v1/settings/card", response_model=SalaryProjection)
+def update_card_settings(payload: CardSettingsUpdateRequest, db: Session = Depends(get_db)):
+    """Atualiza as configurações do ciclo do cartão e recalcula a projeção."""
+    try:
+        if payload.closing_day is not None:
+            c_day = max(1, min(31, payload.closing_day))
+            db.execute(
+                text(
+                    "INSERT INTO app_settings (key, value) VALUES ('card_closing_day', :val) "
+                    "ON CONFLICT(key) DO UPDATE SET value = :val"
+                ),
+                {"val": str(c_day)},
+            )
+        if payload.due_day is not None:
+            d_day = max(1, min(31, payload.due_day))
+            db.execute(
+                text(
+                    "INSERT INTO app_settings (key, value) VALUES ('card_due_day', :val) "
+                    "ON CONFLICT(key) DO UPDATE SET value = :val"
+                ),
+                {"val": str(d_day)},
+            )
+        if payload.use_auto_bill:
+            db.execute(
+                text(
+                    "INSERT INTO app_settings (key, value) VALUES ('custom_bill_amount', '') "
+                    "ON CONFLICT(key) DO UPDATE SET value = ''"
+                )
+            )
+        elif payload.custom_bill_amount is not None:
+            c_amount = max(0.0, float(payload.custom_bill_amount))
+            db.execute(
+                text(
+                    "INSERT INTO app_settings (key, value) VALUES ('custom_bill_amount', :val) "
+                    "ON CONFLICT(key) DO UPDATE SET value = :val"
+                ),
+                {"val": str(c_amount)},
+            )
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar configurações do cartão: {str(e)}")
+
+    metrics = get_dashboard_metrics(db=db)
+    return metrics.salary_projection
+
+
+@app.get("/api/v1/recurring-bills", response_model=RecurringBillsSummary)
+def list_recurring_bills(db: Session = Depends(get_db)):
+    """Lista todas as contas fixas/recorrentes e resume totais pagos/pendentes no mês atual."""
+    now = datetime.now(timezone.utc)
+    curr_ym = now.strftime("%Y-%m")
+
+    bills = (
+        db.query(RecurringBill)
+        .order_by(RecurringBill.due_day.asc(), RecurringBill.id.asc())
+        .all()
+    )
+
+    # Se estiver vazio na primeira chamada, insere a conta padrão do pai
+    if not bills:
+        seed_bill = RecurringBill(
+            name="Ajuda Pai",
+            amount=320.00,
+            due_day=10,
+            category="Família",
+            is_active=1,
+            last_paid_month=None,
+        )
+        db.add(seed_bill)
+        db.commit()
+        db.refresh(seed_bill)
+        bills = [seed_bill]
+
+    items = [
+        RecurringBillResponse(
+            id=b.id,
+            name=b.name,
+            amount=float(b.amount),
+            due_day=b.due_day,
+            category=b.category,
+            is_active=bool(b.is_active),
+            is_paid_this_month=(b.last_paid_month == curr_ym),
+            created_at=b.created_at,
+        )
+        for b in bills
+    ]
+
+    total_monthly = sum(b.amount for b in items if b.is_active)
+    total_paid = sum(
+        b.amount for b in items if b.is_active and b.is_paid_this_month
+    )
+    total_pending = max(0.0, total_monthly - total_paid)
+
+    return RecurringBillsSummary(
+        total_monthly=round(total_monthly, 2),
+        total_paid=round(total_paid, 2),
+        total_pending=round(total_pending, 2),
+        items=items,
+    )
+
+
+@app.post("/api/v1/recurring-bills", response_model=RecurringBillResponse)
+def create_recurring_bill(
+    payload: RecurringBillCreate, db: Session = Depends(get_db)
+):
+    """Cria uma nova conta fixa/recorrente."""
+    new_bill = RecurringBill(
+        name=payload.name.strip(),
+        amount=max(0.0, float(payload.amount)),
+        due_day=max(1, min(31, payload.due_day)),
+        category=payload.category.strip() or "Outros",
+        is_active=1,
+        last_paid_month=None,
+    )
+    db.add(new_bill)
+    db.commit()
+    db.refresh(new_bill)
+
+    return RecurringBillResponse(
+        id=new_bill.id,
+        name=new_bill.name,
+        amount=float(new_bill.amount),
+        due_day=new_bill.due_day,
+        category=new_bill.category,
+        is_active=bool(new_bill.is_active),
+        is_paid_this_month=False,
+        created_at=new_bill.created_at,
+    )
+
+
+@app.patch(
+    "/api/v1/recurring-bills/{bill_id}", response_model=RecurringBillResponse
+)
+def update_recurring_bill(
+    bill_id: int, payload: RecurringBillUpdate, db: Session = Depends(get_db)
+):
+    """Atualiza uma conta fixa existente."""
+    now = datetime.now(timezone.utc)
+    curr_ym = now.strftime("%Y-%m")
+    bill = db.query(RecurringBill).filter(RecurringBill.id == bill_id).first()
+    if not bill:
+        raise HTTPException(
+            status_code=404, detail="Conta fixa não encontrada."
+        )
+
+    if payload.name is not None and payload.name.strip():
+        bill.name = payload.name.strip()
+    if payload.amount is not None:
+        bill.amount = max(0.0, float(payload.amount))
+    if payload.due_day is not None:
+        bill.due_day = max(1, min(31, payload.due_day))
+    if payload.category is not None and payload.category.strip():
+        bill.category = payload.category.strip()
+    if payload.is_active is not None:
+        bill.is_active = 1 if payload.is_active else 0
+
+    db.commit()
+    db.refresh(bill)
+
+    return RecurringBillResponse(
+        id=bill.id,
+        name=bill.name,
+        amount=float(bill.amount),
+        due_day=bill.due_day,
+        category=bill.category,
+        is_active=bool(bill.is_active),
+        is_paid_this_month=(bill.last_paid_month == curr_ym),
+        created_at=bill.created_at,
+    )
+
+
+@app.delete("/api/v1/recurring-bills/{bill_id}")
+def delete_recurring_bill(bill_id: int, db: Session = Depends(get_db)):
+    """Exclui uma conta fixa."""
+    bill = db.query(RecurringBill).filter(RecurringBill.id == bill_id).first()
+    if not bill:
+        raise HTTPException(
+            status_code=404, detail="Conta fixa não encontrada."
+        )
+    db.delete(bill)
+    db.commit()
+    return {"status": "success", "message": "Conta fixa excluída com sucesso."}
+
+
+@app.post(
+    "/api/v1/recurring-bills/{bill_id}/toggle-paid",
+    response_model=RecurringBillResponse,
+)
+def toggle_recurring_bill_paid(bill_id: int, db: Session = Depends(get_db)):
+    """Alterna o status de pago no mês atual."""
+    now = datetime.now(timezone.utc)
+    curr_ym = now.strftime("%Y-%m")
+    bill = db.query(RecurringBill).filter(RecurringBill.id == bill_id).first()
+    if not bill:
+        raise HTTPException(
+            status_code=404, detail="Conta fixa não encontrada."
+        )
+
+    if bill.last_paid_month == curr_ym:
+        bill.last_paid_month = None
+    else:
+        bill.last_paid_month = curr_ym
+
+    db.commit()
+    db.refresh(bill)
+
+    return RecurringBillResponse(
+        id=bill.id,
+        name=bill.name,
+        amount=float(bill.amount),
+        due_day=bill.due_day,
+        category=bill.category,
+        is_active=bool(bill.is_active),
+        is_paid_this_month=(bill.last_paid_month == curr_ym),
+        created_at=bill.created_at,
+    )
+
+
+@app.get("/connect", response_class=HTMLResponse)
+def get_connect_page():
+    """Gera o Connect Token e exibe a interface visual oficial da Pluggy para conectar o banco."""
+    client_id = os.getenv("PLUGGY_CLIENT_ID", "").strip()
+    client_secret = os.getenv("PLUGGY_CLIENT_SECRET", "").strip()
+
+    if not client_id or not client_secret:
+        return HTMLResponse(
+            "<h2>Erro: PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET não configurados no .env</h2>",
+            status_code=500,
+        )
+
+    # 1. Autenticação na Pluggy
+    auth_resp = requests.post(
+        "https://api.pluggy.ai/auth",
+        json={"clientId": client_id, "clientSecret": client_secret},
+        timeout=15,
+    )
+    if auth_resp.status_code != 200:
+        return HTMLResponse(
+            f"<h2>Erro ao autenticar na Pluggy ({auth_resp.status_code}): {auth_resp.text}</h2>",
+            status_code=500,
+        )
+
+    api_key = auth_resp.json().get("apiKey")
+    # 2. Gera Connect Token
+    token_resp = requests.post(
+        "https://api.pluggy.ai/connect_token",
+        headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+        json={},
+        timeout=15,
+    )
+    if token_resp.status_code != 200:
+        return HTMLResponse(
+            f"<h2>Erro ao gerar Connect Token: {token_resp.text}</h2>",
+            status_code=500,
+        )
+
+    connect_token = token_resp.json().get("accessToken")
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Conectar Banco - Pluggy Open Finance</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.pluggy.ai/pluggy-connect/v2.5.0/pluggy-connect.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 flex flex-col items-center justify-center min-h-screen p-4">
+  <div class="max-w-md w-full bg-slate-800 rounded-2xl shadow-2xl p-8 border border-slate-700 text-center">
+    <div class="w-16 h-16 bg-indigo-600/20 text-indigo-400 rounded-full flex items-center justify-center mx-auto mb-4">
+      <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+      </svg>
+    </div>
+    
+    <h1 class="text-2xl font-bold mb-2">Conectar Conta Bancária</h1>
+    <p class="text-slate-400 text-sm mb-6">
+      Clique no botão abaixo para abrir o widget oficial e conectar seu banco com segurança via Open Finance.
+    </p>
+
+    <button id="open-btn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 px-6 rounded-xl transition duration-200 shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+      </svg>
+      Abrir Conector Pluggy
+    </button>
+
+    <div id="status-card" class="hidden mt-6 p-4 rounded-xl text-sm font-medium"></div>
+
+    <a id="dashboard-link" href="http://localhost:3000" class="hidden mt-4 inline-block w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-6 rounded-xl transition duration-200 text-center">
+      Ir para o Dashboard ➔
+    </a>
+  </div>
+
+  <script>
+    const connectToken = "{connect_token}";
+    const btn = document.getElementById('open-btn');
+    const statusCard = document.getElementById('status-card');
+    const dashLink = document.getElementById('dashboard-link');
+
+    function openPluggyWidget() {{
+      const pluggyConnect = new PluggyConnect({{
+        connectToken: connectToken,
+        includeSandbox: true,
+        onSuccess: async (data) => {{
+          const itemId = data?.item?.id;
+          statusCard.className = "mt-6 p-4 rounded-xl text-sm font-medium bg-emerald-950/50 border border-emerald-500 text-emerald-300 block";
+          statusCard.innerHTML = "✅ <b>Banco conectado com sucesso!</b><br>Salvando Item ID e sincronizando transações...";
+          
+          try {{
+            const res = await fetch('/api/v1/connect/save', {{
+              method: 'POST',
+              headers: {{ 'Content-Type': 'application/json' }},
+              body: JSON.stringify({{ item_id: itemId }})
+            }});
+            const json = await res.json();
+            statusCard.innerHTML = "🎉 <b>Concluído!</b> " + json.message;
+            dashLink.classList.remove('hidden');
+          }} catch (e) {{
+            statusCard.innerHTML = "Conectado! Item ID: <code>" + itemId + "</code>.<br>Cole no seu .env se necessário.";
+            dashLink.classList.remove('hidden');
+          }}
+        }},
+        onError: (err) => {{
+          statusCard.className = "mt-6 p-4 rounded-xl text-sm font-medium bg-rose-950/50 border border-rose-500 text-rose-300 block";
+          statusCard.innerText = "Erro durante a conexão: " + (err.message || JSON.stringify(err));
+        }},
+        onClose: () => {{
+          console.log("Pluggy Connect fechado pelo usuário.");
+        }}
+      }});
+
+      pluggyConnect.init();
+    }}
+
+    btn.addEventListener('click', openPluggyWidget);
+    // Abre automaticamente ao carregar
+    window.addEventListener('load', () => {{
+      setTimeout(openPluggyWidget, 400);
+    }});
+  </script>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html_content)
+
+
+@app.post("/api/v1/connect/save")
+def save_connected_item(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Recebe o Item ID da conexão bem-sucedida, atualiza o .env e dispara sincronização imediata."""
+    new_item_id = payload.get("item_id")
+    if not new_item_id:
+        raise HTTPException(status_code=400, detail="item_id não informado.")
+
+    # Atualiza o arquivo .env
+    root_env = Path(__file__).resolve().parents[2] / ".env"
+    if root_env.exists():
+        content = root_env.read_text(encoding="utf-8")
+        lines = content.splitlines()
+        new_lines = []
+        found = False
+        for line in lines:
+            if line.startswith("PLUGGY_ITEM_ID="):
+                new_lines.append(f"PLUGGY_ITEM_ID={new_item_id}")
+                found = True
+            else:
+                new_lines.append(line)
+        if not found:
+            new_lines.append(f"PLUGGY_ITEM_ID={new_item_id}")
+        root_env.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    # Dispara a sincronização imediatamente
+    try:
+        client = PluggyClient(item_id=new_item_id)
+        result = client.sync_to_database(db=db)
+        return {
+            "status": "success",
+            "message": f"Sincronização concluída: {result['accounts_synced']} conta(s) e {result['transactions_upserted']} transação(ões) importadas!",
+            "item_id": new_item_id,
+        }
+    except Exception as exc:
+        return {
+            "status": "partial",
+            "message": f"Item salvo ({new_item_id}), mas a sincronização inicial retornou: {str(exc)}",
+            "item_id": new_item_id,
+        }
+
