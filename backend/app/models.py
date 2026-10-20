@@ -1,0 +1,62 @@
+import enum
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Numeric,
+    DateTime,
+    ForeignKey,
+    Enum,
+    Index,
+)
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
+from app.database import Base
+
+
+class TransactionType(str, enum.Enum):
+    DEBIT = "DEBIT"
+    CREDIT = "CREDIT"
+
+
+class Account(Base):
+    __tablename__ = "accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    type = Column(String(50), nullable=False)  # Ex: BANK, CREDIT
+    balance = Column(Numeric(14, 2), nullable=False, default=0.00)
+    currency = Column(String(10), nullable=False, default="BRL")
+    pluggy_account_id = Column(String(100), unique=True, nullable=False, index=True)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    transactions = relationship(
+        "Transaction", back_populates="account", cascade="all, delete-orphan"
+    )
+
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(
+        Integer, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    amount = Column(Numeric(14, 2), nullable=False)
+    date = Column(DateTime(timezone=True), nullable=False, index=True)
+    description = Column(String(500), nullable=False)
+    merchant_name = Column(String(255), nullable=True)
+    merchant_cnpj = Column(String(30), nullable=True)
+    category = Column(String(120), nullable=True, index=True)
+    type = Column(Enum(TransactionType, name="transaction_type_enum"), nullable=False)
+    pluggy_transaction_id = Column(String(100), unique=True, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    account = relationship("Account", back_populates="transactions")
+
+    __table_args__ = (
+        Index("ix_transactions_date_category", "date", "category"),
+    )
