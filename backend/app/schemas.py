@@ -67,6 +67,8 @@ class SalaryProjection(BaseModel):
     current_bill: float
     recurring_bills_total: float = 0.0
     recurring_bills_pending: float = 0.0
+    caixinhas_liquid_total: float = 0.0
+    caixinhas_total: float = 0.0
     is_bill_custom: bool = False
     bill_closing_day: int = 2
     bill_due_day: int = 7
@@ -77,6 +79,29 @@ class SalaryProjection(BaseModel):
     commitment_percentage: float
     daily_budget: float
     status: str  # "CRITICAL", "WARNING", "HEALTHY"
+
+
+class CaixinhaResponse(BaseModel):
+    id: int
+    name: str
+    balance: float
+    include_in_free_balance: bool
+    linked_goal_id: Optional[int] = None
+    linked_goal_name: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class CaixinhaUpdate(BaseModel):
+    balance: Optional[float] = None
+    include_in_free_balance: Optional[bool] = None
+    linked_goal_id: Optional[int] = None
+
+
+class CaixinhaCreate(BaseModel):
+    name: str
+    balance: float = 0.0
+    include_in_free_balance: bool = False
+    linked_goal_id: Optional[int] = None
 
 
 class RecurringBillCreate(BaseModel):

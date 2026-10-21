@@ -14,9 +14,12 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
 from app.database import Base, engine, get_db
-from app.models import Account, Transaction, TransactionType, RecurringBill, FinancialGoal
+from app.models import Account, Transaction, TransactionType, RecurringBill, FinancialGoal, Caixinha
 from app.schemas import (
     AccountResponse,
+    CaixinhaCreate,
+    CaixinhaResponse,
+    CaixinhaUpdate,
     CardSettings,
     CardSettingsUpdateRequest,
     CategoryExpense,
@@ -497,8 +500,23 @@ def get_dashboard_metrics(
     )
     rec_pending = max(0.0, rec_total - rec_paid)
 
+    # 7.1 Caixinhas (Mercado Pago / Reservas)
+    caixinhas_liquid_total = (
+        db.query(func.coalesce(func.sum(Caixinha.balance), 0))
+        .filter(Caixinha.include_in_free_balance == 1)
+        .scalar()
+        or 0
+    )
+    caixinhas_total = (
+        db.query(func.coalesce(func.sum(Caixinha.balance), 0))
+        .scalar()
+        or 0
+    )
+    caixinhas_liquid_float = float(caixinhas_liquid_total)
+    caixinhas_total_float = float(caixinhas_total)
+
     total_commitments = current_bill + rec_total
-    total_available = user_salary + bank_float
+    total_available = user_salary + bank_float + caixinhas_liquid_float
     free_balance = total_available - total_commitments
     if total_available > 0:
         commitment_pct = min(
@@ -523,6 +541,8 @@ def get_dashboard_metrics(
         current_bill=round(current_bill, 2),
         recurring_bills_total=round(rec_total, 2),
         recurring_bills_pending=round(rec_pending, 2),
+        caixinhas_liquid_total=round(caixinhas_liquid_float, 2),
+        caixinhas_total=round(caixinhas_total_float, 2),
         is_bill_custom=is_bill_custom,
         bill_closing_day=card_closing_day,
         bill_due_day=card_due_day,
@@ -899,6 +919,143 @@ def delete_financial_goal(goal_id: int, db: Session = Depends(get_db)):
     db.delete(goal)
     db.commit()
     return {"status": "success", "message": "Meta excluída com sucesso."}
+
+
+# ==============================================================================
+# CAIXINHAS / RESERVAS MERCADO PAGO
+# ==============================================================================
+
+def _format_caixinha(c: Caixinha, goal_name: Optional[str] = None) -> CaixinhaResponse:
+    return CaixinhaResponse(
+        id=c.id,
+        name=c.name,
+        balance=float(c.balance or 0.0),
+        include_in_free_balance=bool(c.include_in_free_balance),
+        linked_goal_id=c.linked_goal_id,
+        linked_goal_name=goal_name,
+        updated_at=c.updated_at,
+    )
+
+
+def sanitize_reserve_transactions(db: Session):
+    """Marca transações de caixinha (reservado / retirado) como Transferência / Reserva e ignora dos totais de consumo."""
+    try:
+        db.execute(
+            text(
+                "UPDATE transactions SET is_ignored = 1, category = 'Transferência / Reserva' "
+                "WHERE (description LIKE 'Dinheiro reservado%' OR description LIKE 'Dinheiro retirado%') "
+                "AND (is_ignored = 0 OR category != 'Transferência / Reserva')"
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+@app.get("/api/v1/caixinhas", response_model=list[CaixinhaResponse])
+def list_caixinhas(db: Session = Depends(get_db)):
+    """Lista todas as caixinhas/reservas. Detecta do extrato se tabela estiver vazia."""
+    sanitize_reserve_transactions(db)
+
+    items = db.query(Caixinha).order_by(Caixinha.id.asc()).all()
+    if not items:
+        # Detecta nomes existentes no histórico
+        raw_names = db.execute(
+            text(
+                "SELECT DISTINCT SUBSTR(description, 20) FROM transactions "
+                "WHERE description LIKE 'Dinheiro reservado %' "
+                "UNION "
+                "SELECT DISTINCT SUBSTR(description, 19) FROM transactions "
+                "WHERE description LIKE 'Dinheiro retirado %'"
+            )
+        ).fetchall()
+        detected_names = [r[0].strip() for r in raw_names if r[0] and r[0].strip()]
+
+        if not detected_names:
+            detected_names = ["Alguma coisa que eu quero", "Crédito mês que vem", "Emergência", "Dinheiro"]
+
+        for name in detected_names:
+            init_bal = 41.96 if "Alguma coisa que eu quero" in name else 0.0
+            inc_free = 1 if "Alguma coisa que eu quero" in name else 0
+            cx = Caixinha(
+                name=name,
+                balance=init_bal,
+                include_in_free_balance=inc_free,
+                linked_goal_id=None,
+            )
+            db.add(cx)
+        db.commit()
+        items = db.query(Caixinha).order_by(Caixinha.id.asc()).all()
+
+    goals = {g.id: g.name for g in db.query(FinancialGoal).all()}
+    return [_format_caixinha(c, goals.get(c.linked_goal_id)) for c in items]
+
+
+@app.post("/api/v1/caixinhas", response_model=CaixinhaResponse)
+def create_caixinha(payload: CaixinhaCreate, db: Session = Depends(get_db)):
+    """Cria uma nova caixinha manualmente."""
+    name_clean = payload.name.strip()
+    existing = db.query(Caixinha).filter(Caixinha.name == name_clean).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Já existe uma caixinha com esse nome.")
+
+    new_cx = Caixinha(
+        name=name_clean,
+        balance=max(0.0, float(payload.balance)),
+        include_in_free_balance=1 if payload.include_in_free_balance else 0,
+        linked_goal_id=payload.linked_goal_id if payload.linked_goal_id and payload.linked_goal_id > 0 else None,
+    )
+    db.add(new_cx)
+    db.commit()
+    db.refresh(new_cx)
+
+    if new_cx.linked_goal_id:
+        goal = db.query(FinancialGoal).filter(FinancialGoal.id == new_cx.linked_goal_id).first()
+        if goal:
+            goal.current_amount = new_cx.balance
+            db.commit()
+
+    goal_name = db.query(FinancialGoal.name).filter(FinancialGoal.id == new_cx.linked_goal_id).scalar() if new_cx.linked_goal_id else None
+    return _format_caixinha(new_cx, goal_name)
+
+
+@app.patch("/api/v1/caixinhas/{caixinha_id}", response_model=CaixinhaResponse)
+def update_caixinha(caixinha_id: int, payload: CaixinhaUpdate, db: Session = Depends(get_db)):
+    """Atualiza saldo, inclusão no saldo livre (CDI) ou vínculo com meta."""
+    cx = db.query(Caixinha).filter(Caixinha.id == caixinha_id).first()
+    if not cx:
+        raise HTTPException(status_code=404, detail="Caixinha não encontrada.")
+
+    if payload.balance is not None:
+        cx.balance = max(0.0, float(payload.balance))
+    if payload.include_in_free_balance is not None:
+        cx.include_in_free_balance = 1 if payload.include_in_free_balance else 0
+    if payload.linked_goal_id is not None:
+        cx.linked_goal_id = payload.linked_goal_id if payload.linked_goal_id > 0 else None
+
+    db.commit()
+    db.refresh(cx)
+
+    # Sincroniza meta vinculada
+    if cx.linked_goal_id:
+        goal = db.query(FinancialGoal).filter(FinancialGoal.id == cx.linked_goal_id).first()
+        if goal:
+            goal.current_amount = cx.balance
+            db.commit()
+
+    goal_name = db.query(FinancialGoal.name).filter(FinancialGoal.id == cx.linked_goal_id).scalar() if cx.linked_goal_id else None
+    return _format_caixinha(cx, goal_name)
+
+
+@app.delete("/api/v1/caixinhas/{caixinha_id}")
+def delete_caixinha(caixinha_id: int, db: Session = Depends(get_db)):
+    """Exclui uma caixinha."""
+    cx = db.query(Caixinha).filter(Caixinha.id == caixinha_id).first()
+    if not cx:
+        raise HTTPException(status_code=404, detail="Caixinha não encontrada.")
+    db.delete(cx)
+    db.commit()
+    return {"status": "success", "message": "Caixinha excluída com sucesso."}
 
 
 

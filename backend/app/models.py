@@ -91,3 +91,21 @@ class FinancialGoal(Base):
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class Caixinha(Base):
+    __tablename__ = "caixinhas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, nullable=False)
+    balance = Column(Numeric(14, 2), nullable=False, default=0.00)
+    include_in_free_balance = Column(Integer, nullable=False, default=0)
+    linked_goal_id = Column(
+        Integer, ForeignKey("financial_goals.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    goal = relationship("FinancialGoal")

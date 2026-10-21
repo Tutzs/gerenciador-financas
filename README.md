@@ -92,3 +92,4 @@ Com os serviços rodando:
 
 ## 📝 Licença
 Distribuído sob a licença MIT. Sinta-se livre para usar, estudar e contribuir.
+

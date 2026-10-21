@@ -33,6 +33,8 @@ import {
   ChevronDown,
   Calculator,
   HelpCircle,
+  PiggyBank,
+  Box,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -81,6 +83,8 @@ interface SalaryProjection {
   current_bill: number;
   recurring_bills_total: number;
   recurring_bills_pending: number;
+  caixinhas_liquid_total: number;
+  caixinhas_total: number;
   is_bill_custom: boolean;
   bill_closing_day: number;
   bill_due_day: number;
@@ -91,6 +95,16 @@ interface SalaryProjection {
   commitment_percentage: number;
   daily_budget: number;
   status: "CRITICAL" | "WARNING" | "HEALTHY";
+}
+
+interface CaixinhaItem {
+  id: number;
+  name: string;
+  balance: number;
+  include_in_free_balance: boolean;
+  linked_goal_id?: number | null;
+  linked_goal_name?: string | null;
+  updated_at?: string;
 }
 
 interface RecurringBillItem {
@@ -289,6 +303,16 @@ export default function DashboardPage() {
   const [goalFormColor, setGoalFormColor] = useState<string>("emerald");
   const [savingGoal, setSavingGoal] = useState<boolean>(false);
 
+  // Caixinhas Mercado Pago (Reservas)
+  const [caixinhas, setCaixinhas] = useState<CaixinhaItem[]>([]);
+  const [isCaixinhaModalOpen, setIsCaixinhaModalOpen] = useState<boolean>(false);
+  const [editingCaixinhaId, setEditingCaixinhaId] = useState<number | null>(null);
+  const [editCaixinhaBalance, setEditCaixinhaBalance] = useState<string>("");
+  const [savingCaixinha, setSavingCaixinha] = useState<boolean>(false);
+  const [newCaixinhaName, setNewCaixinhaName] = useState<string>("");
+  const [newCaixinhaBalance, setNewCaixinhaBalance] = useState<string>("");
+  const [isCreatingCaixinha, setIsCreatingCaixinha] = useState<boolean>(false);
+
   // Configuração do Salário
   const [isEditingSalary, setIsEditingSalary] = useState<boolean>(false);
   const [salaryInput, setSalaryInput] = useState<string>("1500");
@@ -346,11 +370,12 @@ export default function DashboardPage() {
         params.set("search", searchQuery.trim());
       }
 
-      const [metricsRes, txRes, recRes, goalsRes] = await Promise.all([
+      const [metricsRes, txRes, recRes, goalsRes, caixinhasRes] = await Promise.all([
         fetch(`${API_BASE_URL}/metrics`),
         fetch(`${API_BASE_URL}/transactions?${params.toString()}`),
         fetch(`${API_BASE_URL}/recurring-bills`),
         fetch(`${API_BASE_URL}/goals`),
+        fetch(`${API_BASE_URL}/caixinhas`),
       ]);
 
       if (!metricsRes.ok || !txRes.ok) {
@@ -373,6 +398,11 @@ export default function DashboardPage() {
       if (goalsRes.ok) {
         const goalsData: FinancialGoalItem[] = await goalsRes.json();
         setGoals(goalsData);
+      }
+
+      if (caixinhasRes && caixinhasRes.ok) {
+        const caixinhasData: CaixinhaItem[] = await caixinhasRes.json();
+        setCaixinhas(caixinhasData);
       }
 
       if (metricsData.salary_projection) {
@@ -661,6 +691,90 @@ export default function DashboardPage() {
       if (res.ok) {
         fetchDashboardData();
       }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Caixinhas Handlers
+  const handleToggleCaixinhaCDI = async (id: number, current: boolean) => {
+    try {
+      await fetch(`${API_BASE_URL}/caixinhas/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ include_in_free_balance: !current }),
+      });
+      fetchDashboardData();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleLinkCaixinhaGoal = async (id: number, goalId: number | null) => {
+    try {
+      await fetch(`${API_BASE_URL}/caixinhas/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linked_goal_id: goalId }),
+      });
+      fetchDashboardData();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSaveCaixinhaBalance = async (id: number) => {
+    const val = parseFloat(editCaixinhaBalance.replace(",", "."));
+    if (isNaN(val) || val < 0) {
+      setEditingCaixinhaId(null);
+      return;
+    }
+    setSavingCaixinha(true);
+    try {
+      await fetch(`${API_BASE_URL}/caixinhas/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ balance: val }),
+      });
+      setEditingCaixinhaId(null);
+      fetchDashboardData();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingCaixinha(false);
+    }
+  };
+
+  const handleCreateCaixinha = async () => {
+    if (!newCaixinhaName.trim()) return;
+    const val = parseFloat(newCaixinhaBalance.replace(",", ".")) || 0;
+    setSavingCaixinha(true);
+    try {
+      await fetch(`${API_BASE_URL}/caixinhas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newCaixinhaName.trim(),
+          balance: val,
+          include_in_free_balance: false,
+        }),
+      });
+      setNewCaixinhaName("");
+      setNewCaixinhaBalance("");
+      setIsCreatingCaixinha(false);
+      fetchDashboardData();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingCaixinha(false);
+    }
+  };
+
+  const handleDeleteCaixinha = async (id: number, name: string) => {
+    if (!confirm(`Deseja excluir a caixinha "${name}"?`)) return;
+    try {
+      await fetch(`${API_BASE_URL}/caixinhas/${id}`, { method: "DELETE" });
+      fetchDashboardData();
     } catch (e) {
       console.error(e);
     }
@@ -1205,16 +1319,31 @@ export default function DashboardPage() {
 
                   {/* As 3 Linhas da Equação */}
                   <div className="space-y-4">
-                    {/* Linha 1: Saldo inicial + salário */}
+                    {/* Linha 1: Saldo inicial + salário + Caixinhas CDI */}
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
                         <div className="h-9 w-9 rounded-xl bg-slate-50 border border-slate-200/60 flex items-center justify-center text-slate-600 shrink-0">
                           <Wallet className="h-4 w-4" />
                         </div>
                         <div>
-                          <p className="text-xs font-semibold text-slate-800">
-                            Saldo inicial + salário
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs font-semibold text-slate-800">
+                              Saldo inicial + salário
+                            </p>
+                            <button
+                              onClick={() => setIsCaixinhaModalOpen(true)}
+                              className="text-[10px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/60 px-2 py-0.5 rounded-md transition inline-flex items-center gap-1"
+                              title="Configurar caixinhas de rendimento CDI e metas"
+                            >
+                              <PiggyBank className="h-3 w-3" />
+                              <span>Caixinhas</span>
+                              {proj.caixinhas_liquid_total > 0 && (
+                                <span className="font-extrabold text-indigo-800">
+                                  (+{formatCurrency(proj.caixinhas_liquid_total)})
+                                </span>
+                              )}
+                            </button>
+                          </div>
                           {isEditingSalary ? (
                             <div className="flex items-center gap-1 mt-1">
                               <span className="text-[11px] text-slate-400">
@@ -1244,8 +1373,11 @@ export default function DashboardPage() {
                           ) : (
                             <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
                               <span>
-                                {formatCurrency(proj.bank_balance)} +{" "}
-                                {formatCurrency(proj.salary)}
+                                Conta {formatCurrency(proj.bank_balance)}
+                                {proj.caixinhas_liquid_total > 0 && (
+                                  <> + Caixinha {formatCurrency(proj.caixinhas_liquid_total)}</>
+                                )}
+                                {" "}+ Salário {formatCurrency(proj.salary)}
                               </span>
                               <button
                                 onClick={() => setIsEditingSalary(true)}
@@ -2354,13 +2486,23 @@ export default function DashboardPage() {
                 </p>
               </div>
 
-              <button
-                onClick={handleOpenNewGoal}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-950 hover:bg-slate-800 text-white shadow-xs transition self-start sm:self-auto"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Nova Meta</span>
-              </button>
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <button
+                  onClick={() => setIsCaixinhaModalOpen(true)}
+                  className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-2xs transition"
+                  title="Configurar caixinhas do Mercado Pago"
+                >
+                  <PiggyBank className="h-4 w-4 text-amber-500" />
+                  <span>Caixinhas</span>
+                </button>
+                <button
+                  onClick={handleOpenNewGoal}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-950 hover:bg-slate-800 text-white shadow-xs transition"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Nova Meta</span>
+                </button>
+              </div>
             </div>
 
             {goals.length === 0 ? (
@@ -2450,6 +2592,30 @@ export default function DashboardPage() {
                           </span>
                         </div>
                       </div>
+
+                      {caixinhas.filter((c) => c.linked_goal_id === goal.id).length > 0 && (
+                        <div className="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Caixinha Vinculada
+                          </span>
+                          {caixinhas
+                            .filter((c) => c.linked_goal_id === goal.id)
+                            .map((c) => (
+                              <div
+                                key={c.id}
+                                className="flex items-center justify-between text-xs bg-amber-50/70 border border-amber-200/60 rounded-xl px-2.5 py-1.5 text-amber-900"
+                              >
+                                <span className="flex items-center gap-1.5 font-semibold truncate">
+                                  <PiggyBank className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                                  <span className="truncate">{c.name}</span>
+                                </span>
+                                <span className="font-extrabold shrink-0 text-amber-950">
+                                  {formatCurrency(c.balance)}
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -2840,6 +3006,233 @@ export default function DashboardPage() {
                 className="px-4 py-2 text-xs font-bold text-white bg-slate-950 hover:bg-slate-800 disabled:opacity-50 rounded-xl"
               >
                 {savingGoal ? "Salvando..." : "Salvar Meta"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 4: CAIXINHAS & RESERVAS MERCADO PAGO                                */}
+      {/* ========================================================================= */}
+      {isCaixinhaModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 border border-slate-200 space-y-5 my-8 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                  <PiggyBank className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Caixinhas & Reservas (Mercado Pago)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Defina onde seu dinheiro guardado atua
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsCaixinhaModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Banner explicativo */}
+            <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-3.5 space-y-1.5 text-xs text-slate-600">
+              <p className="font-semibold text-slate-800 flex items-center gap-1.5">
+                <span>💡</span> Como funcionam as duas opções:
+              </p>
+              <div className="space-y-1 pl-1 text-[11px] leading-relaxed">
+                <p>
+                  <strong className="text-emerald-700">1. Rendimento CDI (Saldo Livre):</strong>{" "}
+                  Soma com o saldo disponível no Raio-X do Salário (ideal para dinheiro parado rendendo que você usa no dia a dia).
+                </p>
+                <p>
+                  <strong className="text-indigo-700">2. Vincular a uma Meta:</strong>{" "}
+                  Atualiza o progresso da meta e protege o valor do saldo livre do mês para você não gastar por engano.
+                </p>
+              </div>
+            </div>
+
+            {/* Lista de Caixinhas */}
+            <div className="space-y-3 overflow-y-auto flex-1 pr-1 max-h-[420px]">
+              {caixinhas.length === 0 ? (
+                <div className="text-center py-6 text-slate-400 text-xs">
+                  Nenhuma caixinha cadastrada ou detectada.
+                </div>
+              ) : (
+                caixinhas.map((cx) => (
+                  <div
+                    key={cx.id}
+                    className="p-4 rounded-xl border border-slate-200/90 bg-white hover:border-slate-300 transition space-y-3 shadow-2xs"
+                  >
+                    {/* Linha superior: Nome + Saldo com edição */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-bold text-sm text-slate-900 truncate">
+                          {cx.name}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {editingCaixinhaId === cx.id ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-slate-400 font-semibold">R$</span>
+                            <input
+                              type="text"
+                              value={editCaixinhaBalance}
+                              onChange={(e) => setEditCaixinhaBalance(e.target.value)}
+                              className="w-24 px-2 py-1 text-xs font-bold rounded-lg border border-slate-300 focus:outline-slate-900"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => handleSaveCaixinhaBalance(cx.id)}
+                              disabled={savingCaixinha}
+                              className="p-1 bg-slate-950 text-white rounded-lg hover:bg-slate-800 transition"
+                              title="Salvar saldo"
+                            >
+                              <Check className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => setEditingCaixinhaId(null)}
+                              className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-extrabold text-slate-950 tabular-nums">
+                              {formatCurrency(cx.balance)}
+                            </span>
+                            <button
+                              onClick={() => {
+                                setEditingCaixinhaId(cx.id);
+                                setEditCaixinhaBalance(cx.balance.toFixed(2));
+                              }}
+                              className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition"
+                              title="Editar saldo real da caixinha"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => handleDeleteCaixinha(cx.id, cx.name)}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition ml-1"
+                          title="Excluir caixinha"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Linha inferior: Toggle Rendimento CDI + Dropdown Meta */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
+                      {/* Switch CDI */}
+                      <label className="flex items-center gap-2 cursor-pointer select-none py-1">
+                        <input
+                          type="checkbox"
+                          checked={cx.include_in_free_balance}
+                          onChange={() => handleToggleCaixinhaCDI(cx.id, cx.include_in_free_balance)}
+                          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                        />
+                        <span className="text-slate-700 font-medium text-[11px] leading-tight">
+                          Somar no Saldo Livre <span className="text-emerald-600 font-bold">(CDI)</span>
+                        </span>
+                      </label>
+
+                      {/* Dropdown Meta Vinculada */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-slate-400 shrink-0 font-medium">
+                          Meta:
+                        </span>
+                        <select
+                          value={cx.linked_goal_id || ""}
+                          onChange={(e) =>
+                            handleLinkCaixinhaGoal(
+                              cx.id,
+                              e.target.value ? Number(e.target.value) : null
+                            )
+                          }
+                          className="w-full text-xs font-semibold px-2 py-1 rounded-lg border border-slate-200 bg-white text-slate-800 focus:outline-slate-900 truncate"
+                        >
+                          <option value="">Nenhuma (avulsa)</option>
+                          {goals.map((g) => (
+                            <option key={g.id} value={g.id}>
+                              {g.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+
+              {/* Formulário de Nova Caixinha */}
+              {isCreatingCaixinha ? (
+                <div className="p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-3">
+                  <p className="text-xs font-bold text-slate-800">Nova Caixinha</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Nome (ex: Férias, Reserva)"
+                      value={newCaixinhaName}
+                      onChange={(e) => setNewCaixinhaName(e.target.value)}
+                      className="px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white"
+                      autoFocus
+                    />
+                    <input
+                      type="text"
+                      placeholder="Saldo Atual (R$)"
+                      value={newCaixinhaBalance}
+                      onChange={(e) => setNewCaixinhaBalance(e.target.value)}
+                      className="px-2.5 py-1.5 text-xs font-bold rounded-lg border border-slate-300 bg-white"
+                    />
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => {
+                        setIsCreatingCaixinha(false);
+                        setNewCaixinhaName("");
+                        setNewCaixinhaBalance("");
+                      }}
+                      className="px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-200/50 rounded-lg"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleCreateCaixinha}
+                      disabled={savingCaixinha || !newCaixinhaName.trim()}
+                      className="px-3.5 py-1 text-xs font-bold text-white bg-slate-950 hover:bg-slate-800 disabled:opacity-50 rounded-lg"
+                    >
+                      {savingCaixinha ? "Salvando..." : "Criar Caixinha"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setIsCreatingCaixinha(true)}
+                  className="w-full py-2.5 rounded-xl border border-dashed border-slate-300 hover:border-slate-400 text-xs font-bold text-slate-600 hover:text-slate-900 transition flex items-center justify-center gap-1.5"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Nova Caixinha</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsCaixinhaModalOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-white bg-slate-950 hover:bg-slate-800 rounded-xl"
+              >
+                Concluir
               </button>
             </div>
           </div>
