@@ -1,6 +1,7 @@
 import calendar
 import math
 import os
+import sys
 import requests
 from pathlib import Path
 from datetime import datetime, timezone
@@ -8,7 +9,8 @@ from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
@@ -1230,4 +1232,39 @@ def save_connected_item(
             "message": f"Item salvo ({new_item_id}), mas a sincronização inicial retornou: {str(exc)}",
             "item_id": new_item_id,
         }
+
+
+# =============================================================================
+# SERVIR O FRONTEND ESTÁTICO (QUANDO EMBUTIDO OU APÓS "npm run build")
+# =============================================================================
+if getattr(sys, "frozen", False):
+    FRONTEND_DIST = os.path.join(sys._MEIPASS, "frontend_out")
+else:
+    FRONTEND_DIST = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "out")
+    )
+
+if os.path.isdir(FRONTEND_DIST):
+    next_assets = os.path.join(FRONTEND_DIST, "_next")
+    if os.path.isdir(next_assets):
+        app.mount("/_next", StaticFiles(directory=next_assets), name="next_assets")
+
+    @app.get("/", response_class=FileResponse)
+    async def serve_index():
+        index_file = os.path.join(FRONTEND_DIST, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
+        return HTMLResponse("<h1>Frontend build not found</h1>", status_code=404)
+
+    @app.get("/{full_path:path}")
+    async def serve_static_fallback(full_path: str):
+        if full_path.startswith("api/") or full_path.startswith("connect") or full_path == "docs" or full_path == "openapi.json":
+            raise HTTPException(status_code=404, detail="Endpoint não encontrado")
+        candidate = os.path.join(FRONTEND_DIST, full_path)
+        if os.path.isfile(candidate):
+            return FileResponse(candidate)
+        index_file = os.path.join(FRONTEND_DIST, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
 

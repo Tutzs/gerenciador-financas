@@ -4,6 +4,29 @@ echo ===================================================
 echo   Gerenciador de Financas Pessoais - Windows
 echo ===================================================
 
+:: 0. Verificacao de pre-requisitos (Python e Node.js)
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo [AVISO] Python nao encontrado!
+    echo Tentando instalar automaticamente via winget...
+    winget install Python.Python.3.11 --accept-package-agreements --accept-source-agreements
+    echo.
+    echo Se a instalacao concluiu, feche e abra este arquivo novamente.
+    pause
+    exit /b 1
+)
+
+node --version >nul 2>&1
+if errorlevel 1 (
+    echo [AVISO] Node.js nao encontrado!
+    echo Tentando instalar automaticamente via winget...
+    winget install OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements
+    echo.
+    echo Se a instalacao concluiu, feche e abra este arquivo novamente.
+    pause
+    exit /b 1
+)
+
 :: 1. Prepara o Backend (Python venv)
 cd /d "%~dp0backend"
 if not exist ".venv" (

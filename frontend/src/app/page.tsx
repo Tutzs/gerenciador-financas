@@ -42,7 +42,10 @@ import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== "undefined" && (window.location.port === "8000" || window.location.port === "")
+    ? "/api/v1"
+    : "http://localhost:8000/api/v1");
 
 const CATEGORY_BAR_COLORS = [
   "#4f46e5", // Indigo

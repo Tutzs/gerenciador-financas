@@ -9,9 +9,13 @@ Projetado com estética moderna (padrão Linear/Mercury), o Nexo vai além do ex
 ## 🚀 Funcionalidades Principais
 
 - **📊 Raio-X do Salário (Fluxo de Caixa Antecipado):**
-  - Dedução em tempo real: `(Salário + Saldo Bancário) - Fatura do Cartão - Contas Fixas = Saldo Livre Real`.
+  - Dedução em tempo real: `(Salário + Saldo Bancário + Caixinhas CDI) - Fatura do Cartão - Contas Fixas = Saldo Livre Real`.
   - Orçamento de sobrevivência diário (`R$ / dia` até o próximo ciclo).
   - Alerta inteligente de comprometimento de renda.
+- **🐷 Caixinhas & Reservas (Mercado Pago):**
+  - **Rendimento CDI (Saldo Livre):** Marque a caixinha de rendimento diário para somar ao saldo disponível no Raio-X.
+  - **Vínculo com Metas:** Vincule a caixinha a uma meta específica para preencher a barra de progresso e proteger o dinheiro de ser gasto no mês.
+  - Ajuste manual de saldo real caso o histórico antigo venha truncado.
 - **🎯 Simulador "Cabe no meu bolso?":**
   - Teste qualquer compra antes de passar o cartão e veja instantaneamente o impacto no seu saldo livre.
 - **📌 Contas Fixas & Recorrentes:**
@@ -21,10 +25,10 @@ Projetado com estética moderna (padrão Linear/Mercury), o Nexo vai além do ex
   - Visualização interativa com Recharts e detalhamento ordenado por categoria.
 - **✨ Extrato Inteligente com Open Finance:**
   - Conexão oficial com bancos brasileiros (Mercado Pago, Nubank, Itaú, Bradesco, Inter, etc.).
-  - Switch iOS para ignorar movimentações internas ou reembolsos do orçamento.
+  - Switch iOS para ignorar movimentações internas, transferências entre contas ou reservas do orçamento.
   - Exportação de extrato em CSV.
 - **🎯 Metas Financeiras:**
-  - Acompanhamento visual de objetivos de poupança com barra de progresso.
+  - Acompanhamento visual de objetivos de poupança com barra de progresso e selo de caixinhas vinculadas.
 
 ---
 
@@ -34,10 +38,11 @@ Projetado com estética moderna (padrão Linear/Mercury), o Nexo vai além do ex
 - **Backend:** FastAPI (Python), SQLAlchemy, Pydantic v2, Uvicorn.
 - **Banco de Dados:** SQLite (padrão local, zero configuração) ou PostgreSQL (opcional).
 - **Open Finance:** Pluggy API (Connect Widget oficial).
+- **Empacotador Desktop:** PyInstaller + Next.js Static Export.
 
 ---
 
-## ⚡ Como Rodar o Projeto
+## ⚡ Como Rodar em Modo Desenvolvimento
 
 ### 1. Pré-requisitos
 - **Node.js** 18+ e **npm**
@@ -70,7 +75,8 @@ Basta executar o script único de inicialização:
 start_windows.bat
 ```
 
-O script cuidará de tudo:
+O script:
+- Verifica se Python e Node.js estão instalados (no Windows, instala via `winget` se necessário).
 - Cria o ambiente virtual Python (`.venv`) e instala os pacotes do backend.
 - Instala os pacotes do frontend (`npm install`).
 - Inicia o backend FastAPI em `http://localhost:8000`.
@@ -84,6 +90,53 @@ Com os serviços rodando:
 
 ---
 
+## 📦 Como Gerar o Executável para Windows (.EXE)
+
+O projeto foi preparado para ser empacotado em um aplicativo Windows desktop autônomo:
+- O frontend Next.js é compilado para HTML/JS estático e servido diretamente pelo FastAPI.
+- **O usuário final não precisa ter Node.js nem Python instalados.**
+- O banco de dados e as configurações são salvos automaticamente na pasta do usuário em `%APPDATA%\GerenciadorFinancas\finance.db`.
+
+Você pode gerar o `.exe` de **duas formas**:
+
+### Método 1: Pelo GitHub Actions (Recomendado — Sem precisar de Windows)
+Como seu ambiente de desenvolvimento pode ser Linux ou macOS, você não precisa de uma máquina Windows nem de máquinas virtuais para compilar o executável.
+
+1. Faça o commit e envie (`push`) as alterações para o seu repositório no GitHub:
+   ```bash
+   git add .
+   git commit -m "feat: suporte a executavel windows e caixinhas"
+   git push origin main
+   ```
+2. Abra o seu repositório no navegador no **GitHub**.
+3. Clique na aba superior **Actions**.
+4. No menu lateral esquerdo, clique no fluxo **"Build Windows EXE"**.
+5. Clique no botão **"Run workflow"** (à direita) e confirme.
+6. O GitHub iniciará uma máquina virtual Windows limpa que fará todo o processo:
+   - Instalação das dependências
+   - Compilação estática do Next.js
+   - Empacotamento do executável pelo PyInstaller
+7. Quando a execução terminar (ícone verde de sucesso), clique no job finalizado e faça o download do arquivo em **Artifacts**: **`GerenciadorFinancas-Windows.zip`**.
+8. Descompacte o arquivo zip: dentro dele estará o seu **`GerenciadorFinancas.exe`** pronto para uso!
+
+---
+
+### Método 2: Diretamente em uma Máquina Windows
+Se você estiver utilizando uma máquina com Windows:
+
+1. Abra a pasta do projeto no Windows.
+2. Dê duplo-clique no arquivo:
+   ```bat
+   build_windows_exe.bat
+   ```
+3. O script verificará o ambiente, compilará o frontend, instalará o PyInstaller e gerará o executável.
+4. Ao término, o arquivo final estará localizado na pasta:
+   ```
+   dist\GerenciadorFinancas.exe
+   ```
+
+---
+
 ## 🔒 Segurança e Privacidade
 - O arquivo `.env` contendo suas credenciais de API é ignorado pelo `.gitignore` e **nunca** é enviado ao repositório.
 - O banco de dados local (`*.db`) é mantido estritamente em sua máquina local para preservar o sigilo das suas informações financeiras.
@@ -92,4 +145,3 @@ Com os serviços rodando:
 
 ## 📝 Licença
 Distribuído sob a licença MIT. Sinta-se livre para usar, estudar e contribuir.
-

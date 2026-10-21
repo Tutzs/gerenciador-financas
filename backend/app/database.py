@@ -1,21 +1,32 @@
+import sys
 from pathlib import Path
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# Carrega .env da raiz do monorepo ou da pasta backend
-ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
-load_dotenv(dotenv_path=ROOT_ENV)
-load_dotenv()
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+# Se estiver rodando como executável empacotado (PyInstaller)
+if getattr(sys, "frozen", False):
+    app_data = Path(os.environ.get("APPDATA", Path.home() / ".config")) / "GerenciadorFinancas"
+    app_data.mkdir(parents=True, exist_ok=True)
+    db_file = app_data / "finance.db"
+    env_file = app_data / ".env"
+    if env_file.exists():
+        load_dotenv(dotenv_path=env_file)
+    load_dotenv()
+else:
+    # Carrega .env da raiz do monorepo ou da pasta backend
+    ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
+    load_dotenv(dotenv_path=ROOT_ENV)
+    load_dotenv()
+    db_file = BACKEND_DIR / "finance.db"
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
-BACKEND_DIR = Path(__file__).resolve().parent.parent
-
-# Se estiver fora do Docker (sem host 'db'), usa SQLite local na pasta backend
+# Se estiver fora do Docker (sem host 'db'), usa SQLite local
 if not DATABASE_URL or "@db:" in DATABASE_URL:
-    db_file = BACKEND_DIR / "finance.db"
     DATABASE_URL = f"sqlite:///{db_file}"
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
