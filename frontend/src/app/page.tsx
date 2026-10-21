@@ -1,86 +1,62 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
-import {
-  ArrowDownCircle,
-  ArrowUpCircle,
-  RefreshCw,
-  Wallet,
-  Building2,
-  AlertCircle,
-  CheckCircle2,
-  CreditCard,
-  Calendar,
-  Search,
-  ExternalLink,
-  Tag,
-  Check,
-  X,
-  Eye,
-  EyeOff,
-  Clock,
-  TrendingDown,
-  DollarSign,
-  AlertTriangle,
-  Pencil,
-  Sparkles,
-  SlidersHorizontal,
-  Settings2,
-  Plus,
-  Trash2,
-  CheckSquare,
-  Square,
-  Pin,
-  LayoutDashboard,
-  Receipt,
-} from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   PieChart,
   Pie,
   Cell,
   ResponsiveContainer,
   Tooltip,
-  Legend,
 } from "recharts";
+import {
+  RefreshCw,
+  Wallet,
+  AlertCircle,
+  CheckCircle2,
+  CreditCard,
+  Calendar,
+  Search,
+  ExternalLink,
+  Check,
+  X,
+  Clock,
+  Pencil,
+  Sparkles,
+  SlidersHorizontal,
+  Plus,
+  Trash2,
+  Receipt,
+  Home,
+  Target,
+  ArrowRight,
+  Download,
+  ChevronDown,
+  Calculator,
+  HelpCircle,
+} from "lucide-react";
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
-const CHART_COLORS = [
+const CATEGORY_BAR_COLORS = [
   "#4f46e5", // Indigo
-  "#0ea5e9", // Sky
-  "#10b981", // Emerald
-  "#f59e0b", // Amber
-  "#f43f5e", // Rose
-  "#8b5cf6", // Violet
-  "#ec4899", // Pink
-  "#14b8a6", // Teal
+  "#0284c7", // Sky
+  "#9333ea", // Purple
+  "#d97706", // Amber
   "#64748b", // Slate
+  "#10b981", // Emerald
+  "#e11d48", // Rose
 ];
 
 interface CategoryExpense {
-  category: string;
+  category: str;
   total: number;
 }
+type str = string;
 
 interface FutureCommitmentItem {
   month: string;
@@ -135,6 +111,16 @@ interface RecurringBillsSummary {
   items: RecurringBillItem[];
 }
 
+interface FinancialGoalItem {
+  id: number;
+  name: string;
+  current_amount: number;
+  target_amount: number;
+  color: string;
+  progress_percentage: number;
+  created_at?: string;
+}
+
 interface DashboardMetrics {
   bank_balance: number;
   credit_balance: number;
@@ -173,6 +159,83 @@ interface PaginatedTransactions {
   total_pages: number;
 }
 
+// Helper para separar reais e centavos com elegância tipográfica
+function splitCurrencyParts(value: number) {
+  const absVal = Math.abs(value || 0);
+  const formatted = new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(absVal);
+  const [integerPart, centsPart] = formatted.split(",");
+  const prefix = value < 0 ? "-R$ " : "R$ ";
+  return { prefix, integerPart, centsPart: `,${centsPart || "00"}` };
+}
+
+// Helper para cores de badges de categoria
+function getCategoryBadgeStyle(category?: string | null) {
+  const cat = (category || "Outros").toLowerCase();
+  if (cat.includes("aliment") || cat.includes("supermercado") || cat.includes("ifood")) {
+    return "bg-orange-50 text-orange-700 border-orange-200/60";
+  }
+  if (cat.includes("moradia") || cat.includes("casa") || cat.includes("luz") || cat.includes("utilidades")) {
+    return "bg-blue-50 text-blue-700 border-blue-200/60";
+  }
+  if (cat.includes("assinatura") || cat.includes("servi") || cat.includes("internet")) {
+    return "bg-purple-50 text-purple-700 border-purple-200/60";
+  }
+  if (cat.includes("transporte") || cat.includes("uber")) {
+    return "bg-sky-50 text-sky-700 border-sky-200/60";
+  }
+  if (cat.includes("saúde") || cat.includes("saude") || cat.includes("academia")) {
+    return "bg-emerald-50 text-emerald-700 border-emerald-200/60";
+  }
+  if (cat.includes("família") || cat.includes("familia")) {
+    return "bg-indigo-50 text-indigo-700 border-indigo-200/60";
+  }
+  if (cat.includes("compra")) {
+    return "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200/60";
+  }
+  if (cat.includes("renda") || cat.includes("salário") || cat.includes("salario") || cat.includes("transfer")) {
+    return "bg-emerald-50 text-emerald-700 border-emerald-200/60";
+  }
+  return "bg-slate-100 text-slate-700 border-slate-200/60";
+}
+
+// Helper para Avatar de Estabelecimento (estilo Figma)
+function getMerchantAvatar(name: string) {
+  const clean = (name || "TX").trim();
+  const lower = clean.toLowerCase();
+
+  if (lower.includes("ifood") || lower.includes("ifd")) {
+    return { initials: "iF", bg: "bg-rose-100 text-rose-600" };
+  }
+  if (lower.includes("uber")) {
+    return { initials: "U", bg: "bg-slate-900 text-white" };
+  }
+  if (lower.includes("spotify")) {
+    return { initials: "Sp", bg: "bg-emerald-100 text-emerald-700" };
+  }
+  if (lower.includes("amazon") || lower.includes("amzn")) {
+    return { initials: "a", bg: "bg-amber-100 text-amber-800" };
+  }
+  if (lower.includes("netflix")) {
+    return { initials: "N", bg: "bg-red-100 text-red-700" };
+  }
+  if (lower.includes("nubank") || lower.includes("nu ")) {
+    return { initials: "Nu", bg: "bg-purple-100 text-purple-700" };
+  }
+  if (lower.includes("mercado") || lower.includes("mp ")) {
+    return { initials: "MP", bg: "bg-sky-100 text-sky-700" };
+  }
+  const words = clean.split(/\s+/);
+  const initials =
+    words.length >= 2
+      ? `${words[0][0]}${words[1][0]}`.toUpperCase()
+      : clean.slice(0, 2).toUpperCase();
+
+  return { initials, bg: "bg-slate-100 text-slate-700" };
+}
+
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     bank_balance: 0,
@@ -194,15 +257,19 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [syncing, setSyncing] = useState<boolean>(false);
 
-  // Navegação por Abas
+  // 4 Abas do Design Figma
   const [activeTab, setActiveTab] = useState<
-    "overview" | "recurring" | "transactions"
+    "overview" | "recurring" | "transactions" | "goals"
   >("overview");
+
+  // Simulador "Cabe no meu bolso?"
+  const [simulatorInput, setSimulatorInput] = useState<string>("");
 
   // Contas Fixas & Recorrentes
   const [recurringSummary, setRecurringSummary] =
     useState<RecurringBillsSummary | null>(null);
-  const [loadingRecurring, setLoadingRecurring] = useState<boolean>(false);
+  const [billSearchQuery, setBillSearchQuery] = useState<string>("");
+  const [billCategoryFilter, setBillCategoryFilter] = useState<string>("Todas");
   const [isBillModalOpen, setIsBillModalOpen] = useState<boolean>(false);
   const [editingBillItem, setEditingBillItem] =
     useState<RecurringBillItem | null>(null);
@@ -212,6 +279,16 @@ export default function DashboardPage() {
   const [billFormCategory, setBillFormCategory] = useState<string>("Família");
   const [savingBill, setSavingBill] = useState<boolean>(false);
 
+  // Metas Financeiras (Aba 4)
+  const [goals, setGoals] = useState<FinancialGoalItem[]>([]);
+  const [isGoalModalOpen, setIsGoalModalOpen] = useState<boolean>(false);
+  const [editingGoal, setEditingGoal] = useState<FinancialGoalItem | null>(null);
+  const [goalFormName, setGoalFormName] = useState<string>("");
+  const [goalFormCurrent, setGoalFormCurrent] = useState<string>("");
+  const [goalFormTarget, setGoalFormTarget] = useState<string>("");
+  const [goalFormColor, setGoalFormColor] = useState<string>("emerald");
+  const [savingGoal, setSavingGoal] = useState<boolean>(false);
+
   // Configuração do Salário
   const [isEditingSalary, setIsEditingSalary] = useState<boolean>(false);
   const [salaryInput, setSalaryInput] = useState<string>("1500");
@@ -220,12 +297,12 @@ export default function DashboardPage() {
   // Configuração do Ciclo e Fatura do Cartão
   const [isCardModalOpen, setIsCardModalOpen] = useState<boolean>(false);
   const [closingDayInput, setClosingDayInput] = useState<number>(2);
-  const [dueDayInput, setDueDayInput] = useState<number>(7);
+  const [dueDayInput, setDueDayInput] = useState<number>(10);
   const [billMode, setBillMode] = useState<"auto" | "custom">("auto");
   const [customBillInput, setCustomBillInput] = useState<string>("1127");
   const [savingCardSettings, setSavingCardSettings] = useState<boolean>(false);
 
-  // Filtros
+  // Filtros de Transações
   const [period, setPeriod] = useState<"current_month" | "future" | "all">(
     "current_month"
   );
@@ -244,7 +321,7 @@ export default function DashboardPage() {
     message: string;
   } | null>(null);
 
-  // Carrega categorias disponíveis para o seletor de edição
+  // Carrega categorias disponíveis
   useEffect(() => {
     fetch(`${API_BASE_URL.replace("/api/v1", "")}/api/v1/categories`)
       .then((res) => res.json())
@@ -254,7 +331,7 @@ export default function DashboardPage() {
       .catch(() => {});
   }, []);
 
-  // Busca dados de métricas, transações e contas fixas
+  // Busca dados da API
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
     try {
@@ -269,10 +346,11 @@ export default function DashboardPage() {
         params.set("search", searchQuery.trim());
       }
 
-      const [metricsRes, txRes, recRes] = await Promise.all([
+      const [metricsRes, txRes, recRes, goalsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/metrics`),
         fetch(`${API_BASE_URL}/transactions?${params.toString()}`),
         fetch(`${API_BASE_URL}/recurring-bills`),
+        fetch(`${API_BASE_URL}/goals`),
       ]);
 
       if (!metricsRes.ok || !txRes.ok) {
@@ -292,12 +370,16 @@ export default function DashboardPage() {
         setRecurringSummary(recData);
       }
 
-      // Preenche os inputs com dados do backend
+      if (goalsRes.ok) {
+        const goalsData: FinancialGoalItem[] = await goalsRes.json();
+        setGoals(goalsData);
+      }
+
       if (metricsData.salary_projection) {
         const p = metricsData.salary_projection;
         setSalaryInput(String(p.salary));
         setClosingDayInput(p.bill_closing_day || 2);
-        setDueDayInput(p.bill_due_day || 7);
+        setDueDayInput(p.bill_due_day || 10);
         if (p.is_bill_custom) {
           setBillMode("custom");
           setCustomBillInput(String(p.current_bill));
@@ -381,7 +463,7 @@ export default function DashboardPage() {
     }
   };
 
-  // Salvar configurações do cartão (fechamento, vencimento e fatura)
+  // Salvar configurações do cartão
   const handleSaveCardSettings = async () => {
     setSavingCardSettings(true);
     try {
@@ -424,7 +506,7 @@ export default function DashboardPage() {
     }
   };
 
-  // Funções de Gerenciamento de Contas Fixas
+  // Contas Fixas CRUD
   const handleOpenNewBill = () => {
     setEditingBillItem(null);
     setBillFormName("");
@@ -451,27 +533,18 @@ export default function DashboardPage() {
     setSavingBill(true);
     try {
       if (editingBillItem) {
-        const res = await fetch(
-          `${API_BASE_URL}/recurring-bills/${editingBillItem.id}`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: billFormName.trim(),
-              amount: amountNum,
-              due_day: Number(billFormDueDay),
-              category: billFormCategory.trim(),
-            }),
-          }
-        );
-        if (res.ok) {
-          setFeedback({
-            type: "success",
-            message: `Conta fixa "${billFormName}" atualizada!`,
-          });
-        }
+        await fetch(`${API_BASE_URL}/recurring-bills/${editingBillItem.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: billFormName.trim(),
+            amount: amountNum,
+            due_day: Number(billFormDueDay),
+            category: billFormCategory.trim(),
+          }),
+        });
       } else {
-        const res = await fetch(`${API_BASE_URL}/recurring-bills`, {
+        await fetch(`${API_BASE_URL}/recurring-bills`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -481,19 +554,11 @@ export default function DashboardPage() {
             category: billFormCategory.trim(),
           }),
         });
-        if (res.ok) {
-          setFeedback({
-            type: "success",
-            message: `Conta fixa "${billFormName}" criada com sucesso!`,
-          });
-        }
       }
       setIsBillModalOpen(false);
-      // Recarrega dados e métricas
       fetchDashboardData();
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
-      setFeedback({ type: "error", message: "Erro ao salvar conta fixa." });
     } finally {
       setSavingBill(false);
     }
@@ -506,10 +571,6 @@ export default function DashboardPage() {
         method: "DELETE",
       });
       if (res.ok) {
-        setFeedback({
-          type: "success",
-          message: `Conta fixa "${name}" excluída.`,
-        });
         fetchDashboardData();
       }
     } catch (e) {
@@ -533,7 +594,79 @@ export default function DashboardPage() {
     }
   };
 
-  // Salvar alteração de categoria
+  // Metas CRUD
+  const handleOpenNewGoal = () => {
+    setEditingGoal(null);
+    setGoalFormName("");
+    setGoalFormCurrent("0");
+    setGoalFormTarget("5000");
+    setGoalFormColor("emerald");
+    setIsGoalModalOpen(true);
+  };
+
+  const handleOpenEditGoal = (g: FinancialGoalItem) => {
+    setEditingGoal(g);
+    setGoalFormName(g.name);
+    setGoalFormCurrent(String(g.current_amount));
+    setGoalFormTarget(String(g.target_amount));
+    setGoalFormColor(g.color || "emerald");
+    setIsGoalModalOpen(true);
+  };
+
+  const handleSaveGoal = async () => {
+    if (!goalFormName.trim()) return;
+    const curr = parseFloat(goalFormCurrent.replace(",", ".")) || 0;
+    const targ = parseFloat(goalFormTarget.replace(",", ".")) || 1000;
+
+    setSavingGoal(true);
+    try {
+      if (editingGoal) {
+        await fetch(`${API_BASE_URL}/goals/${editingGoal.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: goalFormName.trim(),
+            current_amount: curr,
+            target_amount: targ,
+            color: goalFormColor,
+          }),
+        });
+      } else {
+        await fetch(`${API_BASE_URL}/goals`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: goalFormName.trim(),
+            current_amount: curr,
+            target_amount: targ,
+            color: goalFormColor,
+          }),
+        });
+      }
+      setIsGoalModalOpen(false);
+      fetchDashboardData();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingGoal(false);
+    }
+  };
+
+  const handleDeleteGoal = async (goalId: number, name: string) => {
+    if (!confirm(`Deseja realmente excluir a meta "${name}"?`)) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/goals/${goalId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        fetchDashboardData();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Salvar categoria de transação
   const handleSaveCategory = async (txId: number) => {
     if (!editCategoryValue.trim()) {
       setEditingTxId(null);
@@ -552,7 +685,6 @@ export default function DashboardPage() {
           )
         );
         setEditingTxId(null);
-        // Atualiza métricas
         const metricsRes = await fetch(`${API_BASE_URL}/metrics`);
         if (metricsRes.ok) {
           setMetrics(await metricsRes.json());
@@ -563,7 +695,7 @@ export default function DashboardPage() {
     }
   };
 
-  // Alternar transação ignorada (não somar no total)
+  // Toggle Ignorar no Raio-X
   const handleToggleIgnore = async (txId: number, currentlyIgnored?: boolean) => {
     try {
       const nextVal = !currentlyIgnored;
@@ -576,7 +708,6 @@ export default function DashboardPage() {
         setTransactions((prev) =>
           prev.map((t) => (t.id === txId ? { ...t, is_ignored: nextVal } : t))
         );
-        // Atualiza métricas
         const metricsRes = await fetch(`${API_BASE_URL}/metrics`);
         if (metricsRes.ok) {
           setMetrics(await metricsRes.json());
@@ -587,1322 +718,1845 @@ export default function DashboardPage() {
     }
   };
 
+  // Exportar CSV
+  const handleExportCSV = () => {
+    if (!transactions.length) return;
+    const headers = ["Data", "Estabelecimento", "Categoria", "Tipo", "Valor", "Ignorado"];
+    const rows = transactions.map((t) => [
+      formatDate(t.date),
+      `"${(t.merchant_name || t.description).replace(/"/g, '""')}"`,
+      `"${t.category || "Outros"}"`,
+      t.type,
+      String(t.amount),
+      t.is_ignored ? "Sim" : "Não",
+    ]);
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `extrato-inteligente-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  };
+
   const proj = metrics.salary_projection;
+  const freeBalance = proj?.free_balance ?? 0;
+  const freeParts = splitCurrencyParts(freeBalance);
+  const commitmentPct = Math.min(100, Math.max(0, proj?.commitment_percentage ?? 0));
+  const freePct = Math.max(0, Number((100 - commitmentPct).toFixed(1)));
+
+  // Simulador "Cabe no meu bolso?"
+  const simulatedSpend = useMemo(() => {
+    const clean = simulatorInput.replace(/[^\d.,]/g, "").replace(",", ".");
+    const val = parseFloat(clean);
+    if (isNaN(val) || val <= 0) return null;
+    const remaining = freeBalance - val;
+    const newDaily = Math.max(0, remaining / 30);
+    return {
+      spend: val,
+      remaining,
+      newDaily,
+      fits: remaining >= 0,
+    };
+  }, [simulatorInput, freeBalance]);
+
+  // Filtro de Contas Fixas
+  const filteredBills = useMemo(() => {
+    const list = recurringSummary?.items || [];
+    return list.filter((b) => {
+      const matchesSearch =
+        !billSearchQuery.trim() ||
+        b.name.toLowerCase().includes(billSearchQuery.toLowerCase()) ||
+        b.category.toLowerCase().includes(billSearchQuery.toLowerCase());
+      const matchesCat =
+        billCategoryFilter === "Todas" ||
+        b.category.toLowerCase() === billCategoryFilter.toLowerCase();
+      return matchesSearch && matchesCat;
+    });
+  }, [recurringSummary, billSearchQuery, billCategoryFilter]);
+
+  const currentMonthName = useMemo(() => {
+    const months = [
+      "janeiro",
+      "fevereiro",
+      "março",
+      "abril",
+      "maio",
+      "junho",
+      "julho",
+      "agosto",
+      "setembro",
+      "outubro",
+      "novembro",
+      "dezembro",
+    ];
+    const now = new Date();
+    return months[now.getMonth()];
+  }, []);
+
+  const currentMonthShort = useMemo(() => {
+    const months = [
+      "JAN",
+      "FEV",
+      "MAR",
+      "ABR",
+      "MAI",
+      "JUN",
+      "JUL",
+      "AGO",
+      "SET",
+      "OUT",
+      "NOV",
+      "DEZ",
+    ];
+    return months[new Date().getMonth()];
+  }, []);
+
+  // Resolução dinâmica das contas conectadas (Mercado Pago, etc.)
+  const creditAccount = useMemo(
+    () => metrics.accounts.find((a) => a.type === "CREDIT"),
+    [metrics.accounts]
+  );
+  const bankAccount = useMemo(
+    () => metrics.accounts.find((a) => a.type === "BANK"),
+    [metrics.accounts]
+  );
+
+  const creditAccountName = creditAccount?.name || "Cartão de Crédito";
+  const bankAccountName = bankAccount?.name || "Conta Corrente";
+
+  // Categorias dinâmicas para o filtro de contas fixas
+  const availableBillCategories = useMemo(() => {
+    const cats = new Set<string>();
+    cats.add("Todas");
+    (recurringSummary?.items || []).forEach((b) => {
+      if (b.category && b.category.trim()) {
+        cats.add(b.category.trim());
+      }
+    });
+    return Array.from(cats);
+  }, [recurringSummary]);
+
+  // Total de despesas categorizadas para o centro do Donut Chart
+  const totalCategoryExpenses = useMemo(() => {
+    return metrics.expenses_by_category.reduce((acc, c) => acc + c.total, 0);
+  }, [metrics.expenses_by_category]);
+
+  // Soma entradas e saídas da página atual do extrato
+  const pageTotals = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    for (const tx of transactions) {
+      if (tx.is_ignored) continue;
+      if (tx.type === "CREDIT") income += Number(tx.amount);
+      else expense += Number(tx.amount);
+    }
+    return { income, expense };
+  }, [transactions]);
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-8 bg-slate-50/50 min-h-screen">
-      {/* Cabeçalho + Ações */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200/80 pb-6">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-              Controle Financeiro Pessoal
-            </h1>
-            <Badge variant="secondary" className="font-medium text-xs">
-              Open Finance Ativo
-            </Badge>
-          </div>
-          <p className="text-sm text-slate-500 mt-1">
-            Conexão direta via Meu Pluggy • Mercado Pago
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <a
-            href="http://localhost:8000/connect"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-xs transition"
-          >
-            <span>+ Conectar Banco</span>
-            <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
-          </a>
-
-          <Button
-            onClick={handleSync}
-            disabled={syncing}
-            className="bg-slate-900 hover:bg-slate-800 text-white shadow-xs rounded-lg"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Sincronizando..." : "Sincronizar Dados"}
-          </Button>
-        </div>
-      </div>
-
-      {/* Banner de Feedback */}
-      {feedback && (
-        <div
-          className={`flex items-center justify-between gap-3 rounded-xl border p-4 text-sm ${
-            feedback.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900 shadow-sm"
-              : "border-rose-200 bg-rose-50 text-rose-900 shadow-sm"
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            {feedback.type === "success" ? (
-              <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
-            ) : (
-              <AlertCircle className="h-5 w-5 shrink-0 text-rose-600" />
-            )}
-            <span className="font-medium">{feedback.message}</span>
-          </div>
-          <button
-            onClick={() => setFeedback(null)}
-            className="text-slate-400 hover:text-slate-600"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Navegação por Abas (SaaS Moderno) */}
-      <div className="flex items-center gap-1 border-b border-slate-200/90 pb-px">
-        <button
-          onClick={() => setActiveTab("overview")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition -mb-px ${
-            activeTab === "overview"
-              ? "border-slate-900 text-slate-900"
-              : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
-          }`}
-        >
-          <LayoutDashboard className="h-4 w-4" />
-          <span>Visão Geral & Raio-X</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("recurring")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition -mb-px ${
-            activeTab === "recurring"
-              ? "border-slate-900 text-slate-900"
-              : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
-          }`}
-        >
-          <Receipt className="h-4 w-4" />
-          <span>Contas Fixas & Recorrentes</span>
-          {recurringSummary && recurringSummary.items.length > 0 && (
-            <span className="text-[11px] bg-slate-100 text-slate-700 font-bold px-2 py-0.5 rounded-full border border-slate-200">
-              {formatCurrency(recurringSummary.total_monthly)}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab("transactions")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition -mb-px ${
-            activeTab === "transactions"
-              ? "border-slate-900 text-slate-900"
-              : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
-          }`}
-        >
-          <CreditCard className="h-4 w-4" />
-          <span>Extrato & Transações</span>
-          {totalCount > 0 && (
-            <span className="text-[11px] bg-slate-100 text-slate-600 font-medium px-2 py-0.5 rounded-full border border-slate-200">
-              {totalCount}
-            </span>
-          )}
-        </button>
-      </div>
-
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans antialiased">
       {/* ========================================================================= */}
-      {/* ABA 1: VISÃO GERAL & RAIO-X                                              */}
+      {/* TOP BAR & NAVEGAÇÃO ESTILO FIGMA (NEXO FINANÇAS)                          */}
       {/* ========================================================================= */}
-      {activeTab === "overview" && (
-        <div className="space-y-8">
-          {/* 4 Cards Principais Segregados */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Card 1: Saldo Disponível em Conta */}
-            <Card className="border border-slate-200/90 rounded-xl shadow-xs hover:border-slate-300 transition-colors">
-              <CardHeader className="flex flex-row items-center justify-between p-6 pb-2">
-                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Saldo em Conta
-                </CardTitle>
-                <div className="p-2 bg-slate-100 rounded-lg text-slate-700">
-                  <Wallet className="h-4 w-4" />
-                </div>
-              </CardHeader>
-              <CardContent className="p-6 pt-0">
-                <div className="text-3xl font-bold tracking-tight text-slate-900">
-                  {loading ? "..." : formatCurrency(metrics.bank_balance)}
-                </div>
-                <p className="text-sm text-slate-500 mt-1.5 flex items-center gap-1.5">
-                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
-                  Dinheiro líquido disponível
-                </p>
-              </CardContent>
-            </Card>
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+          {/* Linha Superior: Brand + Controles Globais */}
+          <div className="flex items-center justify-between h-16 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-xl bg-slate-950 text-white flex items-center justify-center font-bold text-base shadow-xs">
+                N
+              </div>
+              <div>
+                <span className="font-bold text-slate-900 text-sm tracking-tight block leading-none">
+                  Nexo
+                </span>
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 block mt-1">
+                  FINANÇAS PESSOAIS
+                </span>
+              </div>
+            </div>
 
-            {/* Card 2: Fatura do Cartão de Crédito */}
-            <Card className="border border-slate-200/90 rounded-xl shadow-xs hover:border-slate-300 transition-colors">
-              <CardHeader className="flex flex-row items-center justify-between p-6 pb-2">
-                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Fatura do Cartão
-                </CardTitle>
-                <div className="p-2 bg-slate-100 rounded-lg text-slate-700">
-                  <CreditCard className="h-4 w-4" />
-                </div>
-              </CardHeader>
-              <CardContent className="p-6 pt-0">
-                <div className="text-3xl font-bold tracking-tight text-slate-900">
-                  {loading
-                    ? "..."
-                    : formatCurrency(proj?.current_bill ?? metrics.credit_balance)}
-                </div>
-                <p className="text-sm text-slate-500 mt-1.5 flex items-center gap-1.5">
-                  <span className="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
-                  Fatura atual a vencer
-                </p>
-              </CardContent>
-            </Card>
+            <div className="flex items-center gap-2.5">
+              {/* Badge Open Finance Ativo */}
+              <a
+                href="http://localhost:8000/connect"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Gerenciar conexão Open Finance (Pluggy)"
+                className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/70 hover:bg-emerald-100/70 transition"
+              >
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Open Finance conectado</span>
+              </a>
 
-            {/* Card 3: Contas Fixas do Mês */}
-            <Card
-              onClick={() => setActiveTab("recurring")}
-              className="border border-slate-200/90 rounded-xl shadow-xs hover:border-slate-400 transition-colors cursor-pointer"
+              {/* Botão Sincronizar */}
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition shadow-2xs disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 text-slate-500 ${
+                    syncing ? "animate-spin" : ""
+                  }`}
+                />
+                <span>{syncing ? "Sincronizando..." : "Sincronizar"}</span>
+              </button>
+
+              {/* CTA Planejar um gasto */}
+              <button
+                onClick={() => {
+                  setActiveTab("overview");
+                  setTimeout(() => {
+                    document
+                      .getElementById("simulator-input")
+                      ?.focus();
+                  }, 100);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-950 hover:bg-slate-800 text-white transition shadow-xs"
+              >
+                <Target className="h-3.5 w-3.5" />
+                <span>Planejar um gasto</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Linha Inferior: Abas de Navegação com Sublinhado Ativo */}
+          <nav className="flex items-center gap-6 -mb-px overflow-x-auto">
+            <button
+              onClick={() => setActiveTab("overview")}
+              className={`inline-flex items-center gap-2 py-3.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
+                activeTab === "overview"
+                  ? "border-slate-950 text-slate-950"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
             >
-              <CardHeader className="flex flex-row items-center justify-between p-6 pb-2">
-                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Contas Fixas (Mês)
-                </CardTitle>
-                <div className="p-2 bg-slate-100 rounded-lg text-slate-700">
-                  <Receipt className="h-4 w-4" />
-                </div>
-              </CardHeader>
-              <CardContent className="p-6 pt-0">
-                <div className="text-3xl font-bold tracking-tight text-slate-900">
-                  {loading
-                    ? "..."
-                    : formatCurrency(proj?.recurring_bills_total ?? 0)}
-                </div>
-                <p className="text-sm text-slate-500 mt-1.5 flex items-center justify-between">
-                  <span>Compromissos essenciais</span>
-                  <span className="text-xs text-indigo-600 font-semibold hover:underline">
-                    Ver fixos ➔
-                  </span>
-                </p>
-              </CardContent>
-            </Card>
+              <Home className="h-3.5 w-3.5" />
+              <span>Meu dinheiro</span>
+            </button>
 
-            {/* Card 4: Saldo Livre Real no Bolso */}
-            <Card className="border border-slate-200/90 rounded-xl shadow-xs hover:border-slate-300 transition-colors">
-              <CardHeader className="flex flex-row items-center justify-between p-6 pb-2">
-                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Saldo Livre Real
-                </CardTitle>
-                <div
-                  className={`p-2 rounded-lg ${
-                    (proj?.free_balance ?? 0) <= 0
-                      ? "bg-rose-50 text-rose-700"
-                      : "bg-emerald-50 text-emerald-700"
-                  }`}
-                >
-                  <DollarSign className="h-4 w-4" />
-                </div>
-              </CardHeader>
-              <CardContent className="p-6 pt-0">
-                <div
-                  className={`text-3xl font-bold tracking-tight ${
-                    (proj?.free_balance ?? 0) <= 0
-                      ? "text-rose-600"
-                      : "text-emerald-600"
-                  }`}
-                >
-                  {loading ? "..." : formatCurrency(proj?.free_balance ?? 0)}
-                </div>
-                <p className="text-sm text-slate-500 mt-1.5">
-                  {(proj?.free_balance ?? 0) <= 0
-                    ? "⚠️ Déficit após pagar tudo"
-                    : "Sobra líquida para o mês"}
-                </p>
-              </CardContent>
-            </Card>
+            <button
+              onClick={() => setActiveTab("recurring")}
+              className={`inline-flex items-center gap-2 py-3.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
+                activeTab === "recurring"
+                  ? "border-slate-950 text-slate-950"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Receipt className="h-3.5 w-3.5" />
+              <span>Contas Fixas</span>
+              {recurringSummary && recurringSummary.items.length > 0 && (
+                <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-slate-100 text-slate-600 font-bold">
+                  {recurringSummary.items.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab("transactions")}
+              className={`inline-flex items-center gap-2 py-3.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
+                activeTab === "transactions"
+                  ? "border-slate-950 text-slate-950"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>Movimentações</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("goals")}
+              className={`inline-flex items-center gap-2 py-3.5 text-xs font-semibold border-b-2 transition whitespace-nowrap ${
+                activeTab === "goals"
+                  ? "border-slate-950 text-slate-950"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <Target className="h-3.5 w-3.5" />
+              <span>Metas</span>
+            </button>
+          </nav>
+        </div>
+      </header>
+
+      {/* Container Principal */}
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
+        {/* Feedback Toast / Banner */}
+        {feedback && (
+          <div
+            className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs font-medium ${
+              feedback.type === "success"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : "border-rose-200 bg-rose-50 text-rose-900"
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              {feedback.type === "success" ? (
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              ) : (
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+              )}
+              <span>{feedback.message}</span>
+            </div>
+            <button
+              onClick={() => setFeedback(null)}
+              className="p-1 hover:bg-black/5 rounded-lg"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
+        )}
 
-          {/* CARD: RAIO-X DO PRÓXIMO SALÁRIO & SALDO LIVRE REAL */}
-          {proj && (
-            <Card className="border border-slate-200/90 rounded-xl shadow-xs bg-white p-6 space-y-6">
-              {/* Topo do Card de Salário */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-slate-100 rounded-lg text-slate-700">
-                    <DollarSign className="h-5 w-5" />
+        {/* ===================================================================== */}
+        {/* ABA 1: MEU DINHEIRO (OVERVIEW & RAIO-X HUMANIZADO)                    */}
+        {/* ===================================================================== */}
+        {activeTab === "overview" && proj && (
+          <div className="space-y-6">
+            {/* Saudação Humanizada */}
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                  SEU DINHEIRO, SEM COMPLICAÇÃO
+                </p>
+                <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 mt-1">
+                  Tudo sob controle, Ian.
+                </h1>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Primeiro as contas. Depois, seus planos.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsCardModalOpen(true)}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-medium bg-white border border-slate-200/90 text-slate-600 hover:bg-slate-50 shadow-2xs transition"
+                >
+                  <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                  <span>
+                    Seu planejamento de {currentMonthName} • Fecha dia{" "}
+                    {String(proj.bill_closing_day).padStart(2, "0")}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* HERO GRID: "Livre depois das contas" (7 cols) + "A conta é simples" (5 cols) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              {/* CARD ESQUERDO: LIVRE DEPOIS DAS CONTAS */}
+              <div
+                className={`lg:col-span-7 rounded-2xl border overflow-hidden flex flex-col justify-between shadow-2xs transition ${
+                  freeBalance < 0
+                    ? "border-rose-300 bg-gradient-to-b from-rose-50/70 to-white"
+                    : "border-emerald-300/80 bg-gradient-to-b from-emerald-50/70 via-emerald-50/30 to-white"
+                }`}
+              >
+                <div className="p-6 sm:p-7 space-y-5">
+                  {/* Topo do Card */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Wallet
+                        className={`h-4 w-4 ${
+                          freeBalance < 0 ? "text-rose-700" : "text-emerald-800"
+                        }`}
+                      />
+                      <span
+                        className={`text-xs font-bold ${
+                          freeBalance < 0 ? "text-rose-900" : "text-emerald-900"
+                        }`}
+                      >
+                        Livre depois das contas
+                      </span>
+                    </div>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                        freeBalance < 0
+                          ? "bg-white/90 text-rose-700 border-rose-200"
+                          : "bg-white/90 text-emerald-700 border-emerald-200"
+                      }`}
+                    >
+                      Seu valor real
+                    </span>
                   </div>
+
+                  {/* Valor Principal Gigante com Centavos Menores */}
                   <div>
-                    <h2 className="text-lg font-bold tracking-tight text-slate-900">
-                      Raio-X do Próximo Salário & Saldo Livre
-                    </h2>
-                    <p className="text-sm text-slate-500">
-                      Projeção exata: Salário disponível menos Fatura do Cartão e Contas Fixas
+                    <div
+                      className={`flex items-baseline tracking-tight font-extrabold ${
+                        freeBalance < 0 ? "text-rose-700" : "text-emerald-800"
+                      }`}
+                    >
+                      <span className="text-4xl sm:text-5xl">
+                        {freeParts.prefix}
+                        {freeParts.integerPart}
+                      </span>
+                      <span className="text-2xl sm:text-3xl font-bold">
+                        {freeParts.centsPart}
+                      </span>
+                    </div>
+                    <p
+                      className={`text-sm mt-2 max-w-md leading-relaxed ${
+                        freeBalance < 0
+                          ? "text-rose-800/80"
+                          : "text-emerald-900/75"
+                      }`}
+                    >
+                      É o que sobra no planejamento após reservar o dinheiro da
+                      fatura e das contas fixas.
                     </p>
                   </div>
+
+                  {/* Divisor Sutil */}
+                  <div
+                    className={`border-t ${
+                      freeBalance < 0
+                        ? "border-rose-200/60"
+                        : "border-emerald-200/60"
+                    }`}
+                  />
+
+                  {/* Referência Diária */}
+                  <div className="flex items-center gap-3.5">
+                    <div
+                      className={`h-10 w-10 rounded-xl bg-white border flex items-center justify-center shrink-0 shadow-2xs ${
+                        freeBalance < 0
+                          ? "border-rose-100 text-rose-600"
+                          : "border-emerald-100 text-emerald-700"
+                      }`}
+                    >
+                      <Calendar className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">
+                        Uma referência: {formatCurrency(proj.daily_budget)} por
+                        dia
+                      </p>
+                      <p
+                        className={`text-xs ${
+                          freeBalance < 0
+                            ? "text-rose-700/80"
+                            : "text-emerald-700/80"
+                        }`}
+                      >
+                        Se você distribuir esse valor por 30 dias.
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Editor de Salário Inline */}
-                <div className="flex items-center gap-2 bg-slate-50/80 px-3 py-1.5 rounded-lg border border-slate-200 self-start sm:self-auto">
-                  <span className="text-xs font-semibold text-slate-500">Salário:</span>
-                  {isEditingSalary ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-slate-600">R$</span>
-                      <input
-                        type="number"
-                        value={salaryInput}
-                        onChange={(e) => setSalaryInput(e.target.value)}
-                        className="w-24 px-2 py-0.5 text-xs font-bold border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
-                        autoFocus
-                      />
+                {/* Rodapé de Alerta Empático */}
+                <div className="bg-white/95 border-t border-slate-100 px-6 py-3.5 flex items-start gap-2.5">
+                  <Clock className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    {freeBalance < 0 ? (
+                      <>
+                        <strong className="font-semibold text-slate-900">
+                          Atenção ao limite do mês.
+                        </strong>{" "}
+                        Suas contas superam a renda prevista em{" "}
+                        {formatCurrency(Math.abs(freeBalance))}. Evite novos
+                        parcelamentos.
+                      </>
+                    ) : commitmentPct >= 80 ? (
+                      <>
+                        <strong className="font-semibold text-slate-900">
+                          Vá com calma nas próximas compras.
+                        </strong>{" "}
+                        Quase toda a renda já tem destino. Esse valor é uma
+                        previsão, não o saldo do banco.
+                      </>
+                    ) : (
+                      <>
+                        <strong className="font-semibold text-slate-900">
+                          Planejamento equilibrado.
+                        </strong>{" "}
+                        Suas contas fixas e cartão estão dentro de uma margem
+                        segura da sua renda.
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* CARD DIREITO: A CONTA É SIMPLES */}
+              <div className="lg:col-span-5 rounded-2xl border border-slate-200/90 bg-white p-6 sm:p-7 flex flex-col justify-between shadow-2xs">
+                <div className="space-y-5">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Calculator className="h-4 w-4 text-slate-700" />
+                        <h2 className="text-sm font-bold text-slate-900">
+                          A conta é simples
+                        </h2>
+                      </div>
                       <button
-                        onClick={handleSaveSalary}
-                        disabled={savingSalary}
-                        className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"
-                        title="Salvar salário"
+                        onClick={() => setIsCardModalOpen(true)}
+                        className="text-[11px] font-semibold text-slate-400 hover:text-slate-700 transition inline-flex items-center gap-1"
+                        title="Configurar fatura e ciclo"
                       >
-                        <Check className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setIsEditingSalary(false)}
-                        className="p-1 text-slate-400 hover:bg-slate-200 rounded"
-                        title="Cancelar"
-                      >
-                        <X className="h-3.5 w-3.5" />
+                        <SlidersHorizontal className="h-3 w-3" />
+                        <span>Ajustar fatura</span>
                       </button>
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-slate-900">
-                        {formatCurrency(proj.salary)}
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Entenda de onde vem o dinheiro livre.
+                    </p>
+                  </div>
+
+                  {/* As 3 Linhas da Equação */}
+                  <div className="space-y-4">
+                    {/* Linha 1: Saldo inicial + salário */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-xl bg-slate-50 border border-slate-200/60 flex items-center justify-center text-slate-600 shrink-0">
+                          <Wallet className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-slate-800">
+                            Saldo inicial + salário
+                          </p>
+                          {isEditingSalary ? (
+                            <div className="flex items-center gap-1 mt-1">
+                              <span className="text-[11px] text-slate-400">
+                                Salário R$
+                              </span>
+                              <input
+                                type="number"
+                                value={salaryInput}
+                                onChange={(e) => setSalaryInput(e.target.value)}
+                                className="w-20 px-1.5 py-0.5 text-xs border border-slate-300 rounded font-bold text-slate-900"
+                                autoFocus
+                              />
+                              <button
+                                onClick={handleSaveSalary}
+                                disabled={savingSalary}
+                                className="p-0.5 text-emerald-600 hover:bg-emerald-50 rounded"
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setIsEditingSalary(false)}
+                                className="p-0.5 text-slate-400 hover:bg-slate-100 rounded"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                              <span>
+                                {formatCurrency(proj.bank_balance)} +{" "}
+                                {formatCurrency(proj.salary)}
+                              </span>
+                              <button
+                                onClick={() => setIsEditingSalary(true)}
+                                className="text-slate-400 hover:text-slate-700 underline decoration-dotted"
+                                title="Editar salário previsto"
+                              >
+                                editar
+                              </button>
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold text-slate-900 tabular-nums">
+                        {formatCurrency(proj.total_available)}
                       </span>
-                      <button
-                        onClick={() => setIsEditingSalary(true)}
-                        className="p-1 text-slate-400 hover:text-slate-700 transition"
-                        title="Editar valor do salário"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
+                    </div>
+
+                    {/* Linha 2: Fatura do cartão */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-xl bg-slate-50 border border-slate-200/60 flex items-center justify-center text-slate-600 shrink-0">
+                          <CreditCard className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-slate-800">
+                            Fatura do cartão
+                          </p>
+                          <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                            <span>
+                              {creditAccountName}{" "}
+                              {proj.is_bill_custom ? "(Manual)" : "(Automático)"}
+                            </span>
+                            <button
+                              onClick={() => setIsCardModalOpen(true)}
+                              className="text-slate-400 hover:text-slate-700 underline decoration-dotted"
+                            >
+                              editar
+                            </button>
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold text-slate-900 tabular-nums">
+                        - {formatCurrency(proj.current_bill)}
+                      </span>
+                    </div>
+
+                    {/* Linha 3: Contas fixas reservadas */}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-xl bg-slate-50 border border-slate-200/60 flex items-center justify-center text-slate-600 shrink-0">
+                          <Home className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-slate-800">
+                            Contas fixas reservadas
+                          </p>
+                          <button
+                            onClick={() => setActiveTab("recurring")}
+                            className="text-[11px] text-slate-400 hover:text-slate-700 transition text-left"
+                          >
+                            Planejamento mensal • ver lista
+                          </button>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold text-slate-900 tabular-nums">
+                        - {formatCurrency(proj.recurring_bills_total || 0)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Rodapé: Sobra para você + Barra Bicolor */}
+                <div className="pt-5 mt-5 border-t border-slate-100 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900">
+                      Sobra para você
+                    </span>
+                    <span
+                      className={`text-base font-extrabold tabular-nums ${
+                        freeBalance < 0 ? "text-rose-600" : "text-emerald-700"
+                      }`}
+                    >
+                      {formatCurrency(freeBalance)}
+                    </span>
+                  </div>
+
+                  {/* Barra de Progresso Bicolor estilo Figma */}
+                  <div className="h-2 w-full rounded-full bg-emerald-200 overflow-hidden flex">
+                    <div
+                      className="h-full bg-slate-800 transition-all duration-500"
+                      style={{ width: `${commitmentPct}%` }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                    <span>{commitmentPct.toFixed(1).replace(".", ",")}% comprometido</span>
+                    <span>{freePct.toFixed(1).replace(".", ",")}% livre</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* SEGUNDA LINHA: "O que vem pela frente" (7 cols) + "Cabe no meu bolso?" (5 cols) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* O QUE VEM PELA FRENTE */}
+              <div className="lg:col-span-7 rounded-2xl border border-slate-200/90 bg-white p-6 sm:p-7 shadow-2xs space-y-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900">
+                      O que vem pela frente
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Seus próximos vencimentos, em ordem.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab("recurring")}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-950 transition"
+                  >
+                    <span>Ver contas</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                {/* Lista de Vencimentos */}
+                <div className="divide-y divide-slate-100">
+                  {/* Fatura do Cartão sempre visível como compromisso principal */}
+                  <div className="py-3.5 first:pt-0 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="h-11 w-11 rounded-xl bg-amber-50 border border-amber-200/70 flex flex-col items-center justify-center shrink-0">
+                        <span className="text-xs font-extrabold text-amber-800 leading-none">
+                          {String(proj.bill_due_day).padStart(2, "0")}
+                        </span>
+                        <span className="text-[9px] font-bold uppercase text-amber-600 mt-0.5">
+                          {currentMonthShort}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-900">
+                          Fatura Cartão {creditAccountName}
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Cartão de crédito • Fecha dia{" "}
+                          {String(proj.bill_closing_day).padStart(2, "0")}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-slate-900 tabular-nums">
+                      {formatCurrency(proj.current_bill)}
+                    </span>
+                  </div>
+
+                  {/* Contas Fixas Cadastradas */}
+                  {recurringSummary?.items.map((bill) => (
+                    <div
+                      key={bill.id}
+                      className="py-3.5 flex items-center justify-between gap-4"
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <div
+                          className={`h-11 w-11 rounded-xl border flex flex-col items-center justify-center shrink-0 ${
+                            bill.is_paid_this_month
+                              ? "bg-emerald-50 border-emerald-200/70 text-emerald-700"
+                              : "bg-slate-50 border-slate-200/80 text-slate-700"
+                          }`}
+                        >
+                          <span className="text-xs font-extrabold leading-none">
+                            {String(bill.due_day).padStart(2, "0")}
+                          </span>
+                          <span className="text-[9px] font-bold uppercase text-slate-400 mt-0.5">
+                            {currentMonthShort}
+                          </span>
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p
+                              className={`text-xs font-bold ${
+                                bill.is_paid_this_month
+                                  ? "line-through text-slate-400"
+                                  : "text-slate-900"
+                              }`}
+                            >
+                              {bill.name}
+                            </p>
+                            {bill.is_paid_this_month && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-50 text-emerald-700 rounded">
+                                Pago
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            {bill.category} • Todo dia {bill.due_day}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold text-slate-900 tabular-nums">
+                        {formatCurrency(bill.amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Nota Explicativa Tranquilizadora */}
+                <div className="rounded-xl bg-slate-50 border border-slate-200/60 px-4 py-3 text-xs text-slate-500">
+                  <strong className="font-semibold text-slate-700">
+                    Já consideradas no planejamento.
+                  </strong>{" "}
+                  Você não precisa descontar essas contas de novo.
+                </div>
+              </div>
+
+              {/* COLUNA DIREITA: SIMULADOR "CABE NO MEU BOLSO?" + CARD HÁBITO */}
+              <div className="lg:col-span-5 space-y-5">
+                {/* Simulador Cabe no meu bolso? */}
+                <div className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-2xs space-y-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Target className="h-4 w-4 text-slate-700" />
+                      <h2 className="text-sm font-bold text-slate-900">
+                        Cabe no meu bolso?
+                      </h2>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Teste uma compra antes de decidir. Nada será lançado.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="simulator-input"
+                      className="text-xs font-semibold text-slate-700 block"
+                    >
+                      Quanto você pretende gastar?
+                    </label>
+                    <div className="relative">
+                      <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        id="simulator-input"
+                        type="text"
+                        value={simulatorInput}
+                        onChange={(e) => setSimulatorInput(e.target.value)}
+                        placeholder="Valor em R$ • ex.: 50,00"
+                        className="w-full pl-9 pr-8 py-2.5 text-xs rounded-xl border border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 transition"
+                      />
+                      {simulatorInput && (
+                        <button
+                          onClick={() => setSimulatorInput("")}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Resposta Dinâmica do Simulador */}
+                  {!simulatedSpend ? (
+                    <div className="rounded-xl bg-slate-50 border border-slate-100 px-3.5 py-2.5 text-xs text-slate-500">
+                      Seu ponto de partida é{" "}
+                      <strong className="font-semibold text-slate-700">
+                        {formatCurrency(freeBalance)} livres
+                      </strong>
+                      .
+                    </div>
+                  ) : simulatedSpend.fits ? (
+                    <div className="rounded-xl bg-emerald-50/90 border border-emerald-200 px-3.5 py-3 text-xs text-emerald-900 space-y-1">
+                      <p className="font-bold flex items-center gap-1.5">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                        <span>Cabe no seu orçamento livre!</span>
+                      </p>
+                      <p className="text-emerald-800/90 leading-relaxed">
+                        Após gastar{" "}
+                        <strong>{formatCurrency(simulatedSpend.spend)}</strong>,
+                        ainda restarão{" "}
+                        <strong>
+                          {formatCurrency(simulatedSpend.remaining)}
+                        </strong>{" "}
+                        livres ({formatCurrency(simulatedSpend.newDaily)}/dia).
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-3 text-xs text-rose-900 space-y-1">
+                      <p className="font-bold flex items-center gap-1.5">
+                        <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                        <span>Passa do limite disponível!</span>
+                      </p>
+                      <p className="text-rose-800/90 leading-relaxed">
+                        Essa compra excede seu valor livre em{" "}
+                        <strong>
+                          {formatCurrency(Math.abs(simulatedSpend.remaining))}
+                        </strong>
+                        . Se possível, deixe para o próximo ciclo.
+                      </p>
                     </div>
                   )}
                 </div>
-              </div>
 
-              {/* 4 Blocos da Matemática Real */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-                {/* Bloco 1: Total ao Receber */}
-                <div className="rounded-xl p-5 border border-slate-200/80 bg-slate-50/50 flex flex-col justify-between">
-                  <div>
-                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">
-                      (+) Total ao Receber
-                    </span>
-                    <div className="text-3xl font-bold tracking-tight text-slate-900">
-                      {formatCurrency(proj.total_available)}
+                {/* Card: Um pequeno hábito, mais clareza */}
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 flex flex-col justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <Sparkles className="h-4 w-4 text-indigo-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-900">
+                        Um pequeno hábito, mais clareza
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Revise suas movimentações para entender seus gastos.
+                      </p>
                     </div>
                   </div>
-                  <p className="text-sm text-slate-500 mt-2">
-                    Salário ({formatCurrency(proj.salary)}) + Saldo ({formatCurrency(proj.bank_balance)})
-                  </p>
-                </div>
-
-                {/* Bloco 2: Fatura do Cartão a Pagar */}
-                <div className="rounded-xl p-5 border border-slate-200/80 bg-slate-50/50 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        (-) Fatura do Cartão
-                      </span>
-                      <button
-                        onClick={() => setIsCardModalOpen(true)}
-                        className="text-xs font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1 bg-white border border-slate-200/90 px-2 py-0.5 rounded-md hover:bg-slate-50 transition"
-                        title="Ajustar ciclo ou valor da fatura"
-                      >
-                        <SlidersHorizontal className="h-3 w-3 text-slate-500" />
-                        Ciclo & Fatura
-                      </button>
-                    </div>
-                    <div className="text-3xl font-bold tracking-tight text-rose-600">
-                      - {formatCurrency(proj.current_bill)}
-                    </div>
-                  </div>
-                  <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs text-slate-500">
-                    <span>Ciclo até {proj.bill_cycle_end || "02/11"}</span>
-                    {proj.is_bill_custom ? (
-                      <span className="bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded font-medium">
-                        Manual
-                      </span>
-                    ) : (
-                      <span className="bg-slate-200 text-slate-700 px-1.5 py-0.2 rounded font-medium">
-                        Dinâmica
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Bloco 3: Contas Fixas / Recorrentes */}
-                <div className="rounded-xl p-5 border border-slate-200/80 bg-slate-50/50 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        (-) Contas Fixas
-                      </span>
-                      <button
-                        onClick={() => setActiveTab("recurring")}
-                        className="text-xs font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1 bg-white border border-slate-200/90 px-2 py-0.5 rounded-md hover:bg-slate-50 transition"
-                      >
-                        <Receipt className="h-3 w-3" />
-                        Gerenciar ➔
-                      </button>
-                    </div>
-                    <div className="text-3xl font-bold tracking-tight text-amber-600">
-                      - {formatCurrency(proj.recurring_bills_total || 0)}
-                    </div>
-                  </div>
-                  <p className="text-sm text-slate-500 mt-2">
-                    Ajuda familiar, internet, moradia etc.
-                  </p>
-                </div>
-
-                {/* Bloco 4: Saldo Livre no Bolso */}
-                <div className="rounded-xl p-5 border border-slate-200/80 bg-slate-50/50 flex flex-col justify-between">
-                  <div>
-                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">
-                      (=) Saldo Livre Real
-                    </span>
-                    <div
-                      className={`text-3xl font-bold tracking-tight ${
-                        proj.free_balance <= 0 ? "text-rose-600" : "text-emerald-600"
-                      }`}
-                    >
-                      {formatCurrency(proj.free_balance)}
-                    </div>
-                  </div>
-                  <p className="text-sm text-slate-500 mt-2">
-                    {proj.free_balance <= 0
-                      ? "Aviso: Déficit projetado após a fatura e fixos!"
-                      : "Dinheiro livre para passar os 30 dias"}
-                  </p>
-                </div>
-              </div>
-
-              {/* Barra Visual de Comprometimento Multi-segmento */}
-              <div className="space-y-2 pt-1">
-                {(() => {
-                  const total = proj.total_available || 1;
-                  const cardPct = Math.min(
-                    100,
-                    Math.max(0, (proj.current_bill / total) * 100)
-                  );
-                  const recPct = Math.min(
-                    100 - cardPct,
-                    Math.max(0, ((proj.recurring_bills_total || 0) / total) * 100)
-                  );
-                  const freePct = Math.max(0, 100 - cardPct - recPct);
-
-                  return (
-                    <>
-                      <div className="flex flex-wrap items-center justify-between text-xs font-semibold gap-2">
-                        <span className="text-rose-600 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                          Cartão: {cardPct.toFixed(1)}%
-                        </span>
-                        <span className="text-amber-600 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                          Contas Fixas: {recPct.toFixed(1)}%
-                        </span>
-                        <span className="text-emerald-600 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                          Livre para Gastar: {freePct.toFixed(1)}%
-                        </span>
-                      </div>
-
-                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden flex">
-                        <div
-                          style={{ width: `${cardPct}%` }}
-                          className="bg-rose-500 h-full transition-all duration-500"
-                          title={`Cartão: ${cardPct.toFixed(1)}%`}
-                        />
-                        <div
-                          style={{ width: `${recPct}%` }}
-                          className="bg-amber-500 h-full transition-all duration-500"
-                          title={`Contas Fixas: ${recPct.toFixed(1)}%`}
-                        />
-                        <div
-                          style={{ width: `${freePct}%` }}
-                          className="bg-emerald-500 h-full transition-all duration-500"
-                          title={`Livre: ${freePct.toFixed(1)}%`}
-                        />
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-
-              {/* Dica de Orçamento Diário de Sobrevivência */}
-              <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200/70 flex items-center gap-2.5 text-sm text-slate-600">
-                <Sparkles className="h-4 w-4 text-slate-500 shrink-0" />
-                {proj.free_balance > 0 ? (
-                  <span>
-                    Com <b>{formatCurrency(proj.free_balance)}</b> livres após pagar cartão e contas fixas, seu limite diário seguro é de{" "}
-                    <b className="text-slate-900 font-semibold">{formatCurrency(proj.daily_budget)}/dia</b> para não fechar o mês no vermelho.
-                  </span>
-                ) : (
-                  <span className="text-rose-600 font-medium">
-                    Alerta de Sobrevivência: Seus compromissos excedem o dinheiro em mãos em {formatCurrency(Math.abs(proj.free_balance))}.
-                  </span>
-                )}
-              </div>
-            </Card>
-          )}
-
-          {/* Seção Inferior: Próximos Vencimentos de Contas Fixas + Gráfico */}
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-            {/* Widget: Próximos Vencimentos de Contas Fixas */}
-            <Card className="lg:col-span-5 border border-slate-200/90 rounded-xl shadow-xs">
-              <CardHeader className="p-6 pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-bold text-slate-900 tracking-tight">
-                    Contas Fixas deste Mês
-                  </CardTitle>
                   <button
-                    onClick={() => setActiveTab("recurring")}
-                    className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                    onClick={() => setActiveTab("transactions")}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800 hover:text-indigo-700 transition pl-6"
                   >
-                    Gerenciar todas ➔
+                    <span>Revisar movimentações</span>
+                    <ArrowRight className="h-3.5 w-3.5" />
                   </button>
                 </div>
-                <CardDescription className="text-sm text-slate-500">
-                  Marque como paga ao realizar a transferência
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-6 pt-2 space-y-2.5">
-                {!recurringSummary || recurringSummary.items.length === 0 ? (
-                  <div className="text-center py-6 text-sm text-slate-400">
-                    Nenhuma conta fixa cadastrada.
-                    <div className="mt-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleOpenNewBill}
-                        className="text-xs"
-                      >
-                        + Cadastrar primeira conta
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  recurringSummary.items.slice(0, 5).map((b) => (
-                    <div
-                      key={b.id}
-                      className="p-3 rounded-lg border border-slate-200/80 bg-white flex items-center justify-between hover:border-slate-300 transition"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <button
-                          onClick={() => handleTogglePaidBill(b.id)}
-                          title={
-                            b.is_paid_this_month
-                              ? "Marcar como pendente"
-                              : "Marcar como paga"
-                          }
-                          className="text-slate-400 hover:text-emerald-600 transition"
-                        >
-                          {b.is_paid_this_month ? (
-                            <CheckSquare className="h-5 w-5 text-emerald-600" />
-                          ) : (
-                            <Square className="h-5 w-5 text-slate-300" />
-                          )}
-                        </button>
-                        <div>
-                          <div
-                            className={`text-sm font-semibold ${
-                              b.is_paid_this_month
-                                ? "line-through text-slate-400"
-                                : "text-slate-900"
-                            }`}
-                          >
-                            {b.name}
-                          </div>
-                          <div className="text-[11px] text-slate-400">
-                            Vence dia {b.due_day} • {b.category}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <div
-                          className={`text-sm font-bold ${
-                            b.is_paid_this_month
-                              ? "text-slate-400"
-                              : "text-slate-900"
-                          }`}
-                        >
-                          {formatCurrency(b.amount)}
-                        </div>
-                        <div className="text-[10px]">
-                          {b.is_paid_this_month ? (
-                            <span className="text-emerald-600 font-medium">
-                              Pago ✓
-                            </span>
-                          ) : (
-                            <span className="text-amber-600 font-medium">
-                              Pendente
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Gráfico de Rosca */}
-            <Card className="lg:col-span-7 border border-slate-200/90 rounded-xl shadow-xs">
-              <CardHeader className="p-6 pb-2">
-                <CardTitle className="text-base font-bold text-slate-900 tracking-tight">
-                  Despesas por Categoria (Mês Atual)
-                </CardTitle>
-                <CardDescription className="text-sm text-slate-500">
-                  Distribuição dos gastos em {metrics.expenses_by_category.length} categorias
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-6 pt-2 h-80">
-                {metrics.expenses_by_category.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-sm text-slate-400">
-                    Nenhuma despesa registrada neste mês.
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={metrics.expenses_by_category}
-                        dataKey="total"
-                        nameKey="category"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={65}
-                        outerRadius={95}
-                        paddingAngle={3}
-                      >
-                        {metrics.expenses_by_category.map((_, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={CHART_COLORS[index % CHART_COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                      <Legend verticalAlign="bottom" height={40} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* ABA 2: CONTAS FIXAS & RECORRENTES                                         */}
-      {/* ========================================================================= */}
-      {activeTab === "recurring" && (
-        <div className="space-y-6">
-          {/* Topo da Aba */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 pb-4">
-            <div>
-              <h2 className="text-xl font-bold tracking-tight text-slate-900">
-                Contas Fixas & Compromissos Recorrentes
-              </h2>
-              <p className="text-sm text-slate-500">
-                Gerencie pagamentos obrigatórios todo mês (ajuda familiar, luz, internet, etc.)
-              </p>
+              </div>
             </div>
-            <Button
-              onClick={handleOpenNewBill}
-              className="bg-slate-900 hover:bg-slate-800 text-white shadow-xs rounded-lg self-start sm:self-auto"
-            >
-              <Plus className="h-4 w-4 mr-1.5" />
-              Nova Conta Fixa
-            </Button>
+
+            {/* TERCEIRA LINHA: "PARA ONDE FOI A FATURA" (GRÁFICO DONUT + CATEGORIAS) */}
+            <div className="rounded-2xl border border-slate-200/90 bg-white p-6 sm:p-7 shadow-2xs space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900">
+                    Para onde foi a fatura
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Visão visual e detalhada dos gastos por categoria no período.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setActiveTab("transactions")}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-950 transition"
+                >
+                  <span>Ver todas movimentações</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {metrics.expenses_by_category.length === 0 ? (
+                <p className="text-xs text-slate-400 py-8 text-center">
+                  Nenhuma despesa categorizada encontrada neste ciclo.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+                  {/* Lado Esquerdo: Gráfico Donut (Recharts) */}
+                  <div className="lg:col-span-5 flex flex-col items-center justify-center relative py-2">
+                    <div className="w-full h-56 relative flex items-center justify-center">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={metrics.expenses_by_category}
+                            dataKey="total"
+                            nameKey="category"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={58}
+                            outerRadius={82}
+                            paddingAngle={3}
+                            stroke="none"
+                          >
+                            {metrics.expenses_by_category.map((_, index) => (
+                              <Cell
+                                key={`cell-${index}`}
+                                fill={
+                                  CATEGORY_BAR_COLORS[
+                                    index % CATEGORY_BAR_COLORS.length
+                                  ]
+                                }
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(value: any) => [
+                              formatCurrency(Number(value)),
+                              "Gasto",
+                            ]}
+                            contentStyle={{
+                              backgroundColor: "#0f172a",
+                              borderRadius: "0.75rem",
+                              border: "none",
+                              color: "#fff",
+                              fontSize: "12px",
+                              boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
+                            }}
+                            itemStyle={{ color: "#f8fafc" }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+
+                      {/* Texto Central no miolo do Donut */}
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                          Total
+                        </span>
+                        <span className="text-sm font-extrabold text-slate-900 tabular-nums">
+                          {formatCurrency(totalCategoryExpenses)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Lado Direito: Lista de Categorias com Valores e Barras */}
+                  <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {metrics.expenses_by_category.map((cat, idx) => {
+                      const pct =
+                        totalCategoryExpenses > 0
+                          ? Math.round(
+                              (cat.total / totalCategoryExpenses) * 100
+                            )
+                          : 0;
+                      const color =
+                        CATEGORY_BAR_COLORS[idx % CATEGORY_BAR_COLORS.length];
+
+                      return (
+                        <div
+                          key={cat.category}
+                          className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 space-y-2 hover:bg-slate-50 transition"
+                        >
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2 truncate">
+                              <span
+                                className="h-2.5 w-2.5 rounded-full shrink-0"
+                                style={{ backgroundColor: color }}
+                              />
+                              <span className="font-bold text-slate-800 truncate">
+                                {cat.category}
+                              </span>
+                            </div>
+                            <span className="text-slate-400 font-semibold text-[11px]">
+                              {pct}%
+                            </span>
+                          </div>
+                          <p className="text-base font-extrabold text-slate-900 tabular-nums">
+                            {formatCurrency(cat.total)}
+                          </p>
+                          <div className="h-1.5 w-full rounded-full bg-slate-200/70 overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{
+                                width: `${Math.max(6, pct)}%`,
+                                backgroundColor: color,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
+        )}
 
-          {/* 3 Cards de Resumo dos Fixos */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            <Card className="border border-slate-200/90 rounded-xl shadow-xs p-5">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">
-                Total Fixado no Mês
-              </span>
-              <div className="text-3xl font-bold tracking-tight text-slate-900">
-                {formatCurrency(recurringSummary?.total_monthly || 0)}
-              </div>
-              <p className="text-sm text-slate-500 mt-1">
-                Soma de todas as contas cadastradas
-              </p>
-            </Card>
-
-            <Card className="border border-slate-200/90 rounded-xl shadow-xs p-5">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">
-                Já Pago este Mês
-              </span>
-              <div className="text-3xl font-bold tracking-tight text-emerald-600">
-                {formatCurrency(recurringSummary?.total_paid || 0)}
-              </div>
-              <p className="text-sm text-slate-500 mt-1">
-                Contas já marcadas como pagas
-              </p>
-            </Card>
-
-            <Card className="border border-slate-200/90 rounded-xl shadow-xs p-5">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">
-                Restante Pendente a Pagar
-              </span>
-              <div className="text-3xl font-bold tracking-tight text-amber-600">
-                {formatCurrency(recurringSummary?.total_pending || 0)}
-              </div>
-              <p className="text-sm text-slate-500 mt-1">
-                Valor que ainda sairá da conta corrente
-              </p>
-            </Card>
-          </div>
-
-          {/* Feedback de Impacto no Salário */}
-          {proj && (
-            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm">
-              <div className="flex items-center gap-2.5 text-slate-700">
-                <Sparkles className="h-4 w-4 text-slate-500 shrink-0" />
-                <span>
-                  <b>Impacto no Salário:</b> Descontando suas contas fixas ({formatCurrency(recurringSummary?.total_monthly || 0)}) e a fatura de Novembro ({formatCurrency(proj.current_bill)}), você fica com{" "}
-                  <b className={proj.free_balance <= 0 ? "text-rose-600" : "text-emerald-600"}>
-                    {formatCurrency(proj.free_balance)} livres
-                  </b>{" "}
-                  no bolso.
-                </span>
+        {/* ===================================================================== */}
+        {/* ABA 2: CONTAS FIXAS (IDÊNTICO AO PRINT 3 DO FIGMA)                    */}
+        {/* ===================================================================== */}
+        {activeTab === "recurring" && (
+          <div className="space-y-6">
+            {/* Cabeçalho da Aba */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                  PLANEJAMENTO MENSAL
+                </p>
+                <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 mt-1">
+                  Contas Fixas
+                </h1>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Organize os compromissos que se repetem todos os meses.
+                </p>
               </div>
               <button
-                onClick={() => setActiveTab("overview")}
-                className="text-xs font-semibold text-slate-900 hover:underline shrink-0"
+                onClick={handleOpenNewBill}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-950 hover:bg-slate-800 text-white shadow-xs transition self-start sm:self-auto"
               >
-                Ver Raio-X completo ➔
+                <Plus className="h-4 w-4" />
+                <span>Adicionar Conta</span>
               </button>
             </div>
-          )}
 
-          {/* Lista de Contas Fixas */}
-          <Card className="border border-slate-200/90 rounded-xl shadow-xs">
-            <CardHeader className="p-6 pb-3">
-              <CardTitle className="text-base font-bold text-slate-900">
-                Suas Contas Fixas
-              </CardTitle>
-              <CardDescription className="text-sm text-slate-500">
-                Clique na caixinha para marcar como paga no mês assim que fizer a transferência
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-6 pt-0 space-y-3">
-              {!recurringSummary || recurringSummary.items.length === 0 ? (
-                <div className="text-center py-12 text-slate-400">
-                  <Receipt className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-                  <p className="text-sm font-medium">Nenhuma conta fixa cadastrada ainda.</p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Cadastre despesas recorrentes como água, luz, internet ou ajuda familiar.
-                  </p>
-                  <Button
-                    onClick={handleOpenNewBill}
-                    className="mt-4 bg-slate-900 hover:bg-slate-800 text-white text-xs"
-                  >
-                    <Plus className="h-4 w-4 mr-1.5" />
-                    Adicionar Primeira Conta
-                  </Button>
+            {/* 3 KPI Cards: Total mensal, Pendente, Pago */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {/* Total Mensal */}
+              <div className="rounded-2xl border border-slate-200/90 bg-white p-5 flex items-center gap-4 shadow-2xs">
+                <div className="h-11 w-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                  <Receipt className="h-5 w-5" />
                 </div>
-              ) : (
-                recurringSummary.items.map((b) => (
-                  <div
-                    key={b.id}
-                    className={`p-4 rounded-xl border transition flex items-center justify-between ${
-                      b.is_paid_this_month
-                        ? "bg-slate-50/60 border-slate-200 text-slate-500"
-                        : "bg-white border-slate-200 hover:border-slate-300 shadow-xs"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3.5">
-                      <button
-                        onClick={() => handleTogglePaidBill(b.id)}
-                        className="text-slate-400 hover:text-emerald-600 transition p-1"
-                        title={
-                          b.is_paid_this_month
-                            ? "Marcar como pendente"
-                            : "Marcar como paga neste mês"
-                        }
-                      >
-                        {b.is_paid_this_month ? (
-                          <CheckSquare className="h-6 w-6 text-emerald-600" />
-                        ) : (
-                          <Square className="h-6 w-6 text-slate-300" />
-                        )}
-                      </button>
-
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`font-bold text-base ${
-                              b.is_paid_this_month
-                                ? "line-through text-slate-400"
-                                : "text-slate-900"
-                            }`}
-                          >
-                            {b.name}
-                          </span>
-                          <span className="text-[11px] font-semibold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200">
-                            {b.category}
-                          </span>
-                          {b.is_paid_this_month && (
-                            <span className="text-[11px] font-semibold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md border border-emerald-200">
-                              Pago este mês
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-slate-500 mt-0.5">
-                          Vencimento todo <b>dia {b.due_day}</b> de cada mês
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <div
-                          className={`text-xl font-bold tracking-tight ${
-                            b.is_paid_this_month
-                              ? "text-slate-400 line-through"
-                              : "text-slate-900"
-                          }`}
-                        >
-                          {formatCurrency(b.amount)}
-                        </div>
-                        <div className="text-[11px] text-slate-400">
-                          {b.is_paid_this_month ? "Transferência realizada" : "Pendente de pagamento"}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1 border-l pl-3 border-slate-200">
-                        <button
-                          onClick={() => handleOpenEditBill(b)}
-                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
-                          title="Editar conta fixa"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteBill(b.id, b.name)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                          title="Excluir conta fixa"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* ABA 3: EXTRATO & TRANSAÇÕES                                              */}
-      {/* ========================================================================= */}
-      {activeTab === "transactions" && (
-        <div className="space-y-6">
-          {/* Card: Previsão de Próximas Faturas e Parcelas Futuras */}
-          {metrics.future_commitments_total > 0 && (
-            <div className="bg-slate-900 text-slate-100 rounded-xl border border-slate-800 p-6 shadow-xs">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-slate-400" />
-                    <h3 className="text-base font-bold text-white tracking-tight">
-                      Compromissos Futuros do Cartão (Parcelas Já Lançadas)
-                    </h3>
-                  </div>
-                  <p className="text-sm text-slate-400">
-                    Compras parceladas identificadas com vencimento nos próximos meses:
+                <div>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Total mensal
                   </p>
-                </div>
-
-                <div className="text-left md:text-right">
-                  <div className="text-3xl font-bold tracking-tight text-white">
-                    {formatCurrency(metrics.future_commitments_total)}
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">Total já comprometido</p>
+                  <p className="text-2xl font-extrabold text-slate-900 tabular-nums mt-0.5">
+                    {formatCurrency(recurringSummary?.total_monthly || 0)}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {recurringSummary?.items.length || 0} conta(s) recorrente(s)
+                  </p>
                 </div>
               </div>
 
-              <div className="mt-4 pt-4 border-t border-slate-800 flex flex-wrap items-center gap-2.5">
-                {metrics.future_commitments.map((fc) => (
-                  <button
-                    key={fc.month}
-                    onClick={() => {
-                      setPeriod("future");
-                      setCurrentPage(1);
-                    }}
-                    className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700/80 border border-slate-700/70 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-200 transition"
-                  >
-                    <Calendar className="h-3.5 w-3.5 text-slate-400" />
-                    <span>{fc.label}:</span>
-                    <span className="font-semibold text-white">{formatCurrency(fc.total)}</span>
-                    <span className="text-slate-400">({fc.count} parc.)</span>
-                  </button>
-                ))}
+              {/* Pendente */}
+              <div className="rounded-2xl border border-slate-200/90 bg-white p-5 flex items-center gap-4 shadow-2xs">
+                <div className="h-11 w-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                  <Clock className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 font-medium">Pendente</p>
+                  <p className="text-2xl font-extrabold text-slate-900 tabular-nums mt-0.5">
+                    {formatCurrency(recurringSummary?.total_pending || 0)}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {recurringSummary?.items.filter((i) => !i.is_paid_this_month)
+                      .length || 0}{" "}
+                    vencimento(s) próximo(s)
+                  </p>
+                </div>
+              </div>
 
-                <button
-                  onClick={() => {
-                    setPeriod("future");
-                    setCurrentPage(1);
-                  }}
-                  className="text-xs text-slate-400 hover:text-white underline ml-auto transition font-medium"
-                >
-                  Ver parcelas na tabela ➔
-                </button>
+              {/* Pago */}
+              <div className="rounded-2xl border border-slate-200/90 bg-white p-5 flex items-center gap-4 shadow-2xs">
+                <div className="h-11 w-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 font-medium">Pago</p>
+                  <p className="text-2xl font-extrabold text-slate-900 tabular-nums mt-0.5">
+                    {formatCurrency(recurringSummary?.total_paid || 0)}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {recurringSummary && recurringSummary.total_monthly > 0
+                      ? `${Math.round(
+                          (recurringSummary.total_paid /
+                            recurringSummary.total_monthly) *
+                            100
+                        )}% do total`
+                      : "0% do total"}
+                  </p>
+                </div>
               </div>
             </div>
-          )}
 
-          {/* Resumo das Contas Conectadas */}
-          <Card className="border border-slate-200/90 rounded-xl shadow-xs">
-            <CardHeader className="p-6 pb-2">
-              <CardTitle className="text-base font-bold text-slate-900 tracking-tight">
-                Contas Vinculadas
-              </CardTitle>
-              <CardDescription className="text-sm text-slate-500">
-                Instituições conectadas pelo Open Finance (clique em uma conta para filtrar o extrato)
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-6 pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {metrics.accounts.length === 0 ? (
-                <p className="text-sm text-slate-400">Nenhuma conta vinculada.</p>
-              ) : (
-                metrics.accounts.map((acc) => {
-                  const isBank = acc.type === "BANK";
-                  return (
-                    <div
-                      key={acc.id}
-                      onClick={() => {
-                        setSelectedAccountId((prev) =>
-                          prev === acc.id ? null : acc.id
-                        );
-                        setCurrentPage(1);
-                      }}
-                      className={`p-3.5 rounded-lg border transition cursor-pointer flex items-center justify-between ${
-                        selectedAccountId === acc.id
-                          ? "border-slate-900 bg-slate-50 shadow-xs"
-                          : "border-slate-200 hover:border-slate-300 bg-white"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-slate-100 rounded-lg text-slate-700">
-                          {isBank ? (
-                            <Wallet className="h-4 w-4" />
-                          ) : (
-                            <CreditCard className="h-4 w-4" />
-                          )}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-slate-900 text-sm">
-                            {acc.name}
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            {isBank ? "Conta Corrente" : "Cartão de Crédito"}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <div className="font-bold text-sm text-slate-900">
-                          {formatCurrency(Number(acc.balance))}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {selectedAccountId === acc.id
-                            ? "Filtro ativo"
-                            : "Clique para filtrar"}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-
-              {selectedAccountId !== null && (
-                <button
-                  onClick={() => {
-                    setSelectedAccountId(null);
-                    setCurrentPage(1);
-                  }}
-                  className="col-span-full text-center text-xs text-slate-600 hover:text-slate-900 font-medium pt-1"
-                >
-                  Limpar filtro de conta (mostrar todas)
-                </button>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Tabela de Transações com Filtros Avançados */}
-          <Card className="border border-slate-200/90 rounded-xl shadow-xs">
-            <CardHeader className="p-6 space-y-4">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <CardTitle className="text-base font-bold text-slate-900 tracking-tight">
-                    Extrato de Transações
-                  </CardTitle>
-                  <CardDescription className="text-sm text-slate-500">
-                    {totalCount} transações encontradas • Gerencie categorias e status
-                  </CardDescription>
+            {/* Card da Tabela com Busca e Filtros */}
+            <div className="rounded-2xl border border-slate-200/90 bg-white shadow-2xs overflow-hidden">
+              {/* Barra de Busca e Pills */}
+              <div className="p-4 sm:px-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="relative w-full sm:w-72">
+                  <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={billSearchQuery}
+                    onChange={(e) => setBillSearchQuery(e.target.value)}
+                    placeholder="Buscar conta..."
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition"
+                  />
                 </div>
 
-                {/* Abas de Período */}
-                <div className="inline-flex rounded-lg bg-slate-100 p-1 text-xs font-semibold text-slate-600">
-                  <button
-                    onClick={() => {
-                      setPeriod("current_month");
-                      setCurrentPage(1);
-                    }}
-                    className={`px-3 py-1.5 rounded-md transition ${
-                      period === "current_month"
-                        ? "bg-white text-slate-900 shadow-xs"
-                        : "hover:text-slate-900"
-                    }`}
-                  >
-                    Mês Atual
-                  </button>
-                  <button
-                    onClick={() => {
-                      setPeriod("future");
-                      setCurrentPage(1);
-                    }}
-                    className={`px-3 py-1.5 rounded-md transition flex items-center gap-1.5 ${
-                      period === "future"
-                        ? "bg-white text-slate-900 shadow-xs"
-                        : "hover:text-slate-900"
-                    }`}
-                  >
-                    <span>Próximas Faturas (Futuro)</span>
-                    {metrics.future_commitments_total > 0 && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-slate-700"></span>
+                <div className="flex items-center gap-1 bg-slate-100/80 p-1 rounded-xl overflow-x-auto">
+                  {availableBillCategories.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setBillCategoryFilter(cat)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${
+                        billCategoryFilter === cat
+                          ? "bg-white text-slate-900 shadow-2xs"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tabela de Contas Fixas */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      <th className="py-3.5 pl-6 pr-2 w-10"></th>
+                      <th className="py-3.5 px-4">NOME</th>
+                      <th className="py-3.5 px-4">CATEGORIA</th>
+                      <th className="py-3.5 px-4">VENCIMENTO</th>
+                      <th className="py-3.5 px-4 text-right">VALOR</th>
+                      <th className="py-3.5 pl-2 pr-6 text-right w-24">AÇÕES</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {filteredBills.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={6}
+                          className="py-12 text-center text-slate-400"
+                        >
+                          Nenhuma conta fixa encontrada. Clique em &ldquo;+
+                          Adicionar Conta&rdquo; para cadastrar.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredBills.map((bill) => {
+                        const paid = bill.is_paid_this_month;
+                        return (
+                          <tr
+                            key={bill.id}
+                            className={`group transition ${
+                              paid ? "bg-slate-50/40" : "hover:bg-slate-50/60"
+                            }`}
+                          >
+                            {/* Checkbox Verde Estilo Figma */}
+                            <td className="py-4 pl-6 pr-2">
+                              <button
+                                onClick={() => handleTogglePaidBill(bill.id)}
+                                title={
+                                  paid
+                                    ? "Desmarcar pagamento deste mês"
+                                    : "Marcar como paga neste mês"
+                                }
+                                className={`h-5 w-5 rounded-md border flex items-center justify-center transition ${
+                                  paid
+                                    ? "bg-emerald-600 border-emerald-600 text-white"
+                                    : "bg-white border-slate-300 hover:border-slate-400"
+                                }`}
+                              >
+                                {paid && <Check className="h-3.5 w-3.5 stroke-[3]" />}
+                              </button>
+                            </td>
+
+                            {/* Nome + Ícone */}
+                            <td className="py-4 px-4">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+                                    paid
+                                      ? "bg-emerald-50 text-emerald-600"
+                                      : "bg-indigo-50/70 text-indigo-600"
+                                  }`}
+                                >
+                                  <Home className="h-4 w-4" />
+                                </div>
+                                <div>
+                                  <p
+                                    className={`font-bold ${
+                                      paid
+                                        ? "text-slate-400 line-through"
+                                        : "text-slate-900"
+                                    }`}
+                                  >
+                                    {bill.name}
+                                  </p>
+                                  <p className="text-[11px] text-slate-400">
+                                    Mensal
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Categoria Pill */}
+                            <td className="py-4 px-4">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${getCategoryBadgeStyle(
+                                  bill.category
+                                )}`}
+                              >
+                                {bill.category}
+                              </span>
+                            </td>
+
+                            {/* Vencimento */}
+                            <td className="py-4 px-4 text-slate-600 font-medium">
+                              <div className="inline-flex items-center gap-1.5">
+                                <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                                <span>
+                                  {String(bill.due_day).padStart(2, "0")}{" "}
+                                  {currentMonthName.slice(0, 3)}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Valor */}
+                            <td className="py-4 px-4 text-right font-extrabold text-slate-900 tabular-nums">
+                              {formatCurrency(bill.amount)}
+                            </td>
+
+                            {/* Ações */}
+                            <td className="py-4 pl-2 pr-6 text-right">
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  onClick={() => handleOpenEditBill(bill)}
+                                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                                  title="Editar conta fixa"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    handleDeleteBill(bill.id, bill.name)
+                                  }
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                                  title="Excluir conta fixa"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
-                  </button>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Rodapé da Tabela */}
+              <div className="px-6 py-3.5 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                <span>
+                  {filteredBills.length} de{" "}
+                  {recurringSummary?.items.length || 0} contas
+                </span>
+                <span>Atualizado agora</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================================== */}
+        {/* ABA 3: MOVIMENTAÇÕES / EXTRATO INTELIGENTE (IDÊNTICO AO PRINT 4)       */}
+        {/* ===================================================================== */}
+        {activeTab === "transactions" && (
+          <div className="space-y-6">
+            {/* Cabeçalho */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                  {(creditAccountName || "CARTÃO").toUpperCase()} & {(bankAccountName || "CONTA").toUpperCase()} • {currentMonthName.toUpperCase()}
+                </p>
+                <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 mt-1">
+                  Extrato Inteligente
+                </h1>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Movimentações organizadas automaticamente para você revisar.
+                </p>
+              </div>
+
+              <button
+                onClick={handleExportCSV}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs transition self-start sm:self-auto"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>Exportar CSV</span>
+              </button>
+            </div>
+
+            {/* Card Principal do Extrato */}
+            <div className="rounded-2xl border border-slate-200/90 bg-white shadow-2xs overflow-hidden">
+              {/* Barra de Filtros */}
+              <div className="p-4 sm:px-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-1">
+                  {/* Busca */}
+                  <div className="relative w-full sm:w-72">
+                    <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      placeholder="Buscar estabelecimento..."
+                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition"
+                    />
+                  </div>
+
+                  {/* Seletor de Período */}
+                  <div className="inline-flex items-center gap-1 bg-slate-100/80 p-1 rounded-xl">
+                    <button
+                      onClick={() => {
+                        setPeriod("current_month");
+                        setCurrentPage(1);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                        period === "current_month"
+                          ? "bg-white text-slate-900 shadow-2xs"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      Mês atual
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPeriod("future");
+                        setCurrentPage(1);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                        period === "future"
+                          ? "bg-white text-slate-900 shadow-2xs"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      Parcelas futuras
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPeriod("all");
+                        setCurrentPage(1);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                        period === "all"
+                          ? "bg-white text-slate-900 shadow-2xs"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      Tudo
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filtro de Contas Dinâmico */}
+                <div className="inline-flex items-center gap-1 bg-slate-100/80 p-1 rounded-xl self-start md:self-auto">
                   <button
                     onClick={() => {
-                      setPeriod("all");
+                      setSelectedAccountId(null);
                       setCurrentPage(1);
                     }}
-                    className={`px-3 py-1.5 rounded-md transition ${
-                      period === "all"
-                        ? "bg-white text-slate-900 shadow-xs"
-                        : "hover:text-slate-900"
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                      selectedAccountId === null
+                        ? "bg-white text-slate-900 shadow-2xs"
+                        : "text-slate-500 hover:text-slate-800"
                     }`}
                   >
                     Todas
                   </button>
+                  {metrics.accounts.map((acc) => (
+                    <button
+                      key={acc.id}
+                      onClick={() => {
+                        setSelectedAccountId(acc.id);
+                        setCurrentPage(1);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${
+                        selectedAccountId === acc.id
+                          ? "bg-white text-slate-900 shadow-2xs"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      {acc.type === "CREDIT"
+                        ? `${acc.name} (Cartão)`
+                        : `${acc.name} (Conta)`}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Barra de Busca */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  placeholder="Buscar por estabelecimento, descrição ou CNPJ..."
-                  className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-slate-200 bg-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => {
-                      setSearchQuery("");
-                      setCurrentPage(1);
-                    }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
+              {/* Faixa Informativa Roxa/Indigo Estilo Figma */}
+              <div className="bg-indigo-50/50 border-y border-indigo-100/80 px-6 py-2.5 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 text-indigo-700 font-semibold">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>
+                    Transações categorizadas automaticamente via Open Finance
+                  </span>
+                </div>
+                <span className="text-[11px] text-indigo-600/80 font-medium hidden sm:inline">
+                  Clique na categoria para revisar
+                </span>
               </div>
-            </CardHeader>
 
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Estabelecimento & Conta</TableHead>
-                    <TableHead>Categoria</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
-                    <TableHead className="text-center w-20">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {transactions.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="h-32 text-center text-slate-400">
-                        Nenhuma transação encontrada com os filtros selecionados.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    transactions.map((tx) => {
-                      const isCredit = tx.type === "CREDIT";
-                      const isFuture = new Date(tx.date) > new Date();
-                      const isIgnored = Boolean(tx.is_ignored);
-
-                      return (
-                        <TableRow
-                          key={tx.id}
-                          className={isIgnored ? "opacity-40 bg-slate-50/50" : ""}
+              {/* Tabela de Transações */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      <th className="py-3.5 pl-6 pr-4">TRANSAÇÃO</th>
+                      <th className="py-3.5 px-4">CATEGORIA</th>
+                      <th className="py-3.5 px-4">DETALHES</th>
+                      <th className="py-3.5 px-4 text-center">
+                        IGNORAR NO RAIO-X
+                      </th>
+                      <th className="py-3.5 pl-4 pr-6 text-right">VALOR</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {transactions.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className="py-12 text-center text-slate-400"
                         >
-                          <TableCell className="whitespace-nowrap text-slate-500 text-xs">
-                            <div className="flex flex-col">
-                              <span>{formatDate(tx.date)}</span>
-                              {isFuture && (
-                                <span className="text-[10px] text-amber-600 font-semibold">
-                                  Parcela Futura
-                                </span>
-                              )}
-                            </div>
-                          </TableCell>
+                          Nenhuma movimentação encontrada para este filtro.
+                        </td>
+                      </tr>
+                    ) : (
+                      transactions.map((tx) => {
+                        const isCredit = tx.type === "CREDIT";
+                        const isFuture = new Date(tx.date) > new Date();
+                        const isIgnored = Boolean(tx.is_ignored);
+                        const displayName = tx.merchant_name || tx.description;
+                        const avatar = getMerchantAvatar(displayName);
 
-                          <TableCell>
-                            <div className="flex flex-col">
-                              <span className="font-semibold text-slate-900 text-sm">
-                                {tx.merchant_name || tx.description}
-                              </span>
-                              <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400">
-                                <span className="inline-flex items-center gap-1">
-                                  {tx.account_type === "BANK" ? (
-                                    <Wallet className="h-3 w-3 text-indigo-500" />
-                                  ) : (
-                                    <CreditCard className="h-3 w-3 text-amber-500" />
-                                  )}
-                                  {tx.account_type === "BANK"
-                                    ? "Conta Corrente"
-                                    : "Cartão de Crédito"}
-                                </span>
-                                {tx.merchant_cnpj && (
-                                  <span>• CNPJ: {tx.merchant_cnpj}</span>
-                                )}
-                              </div>
-                            </div>
-                          </TableCell>
-
-                          {/* Categoria com Edição Rápida */}
-                          <TableCell>
-                            {editingTxId === tx.id ? (
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="text"
-                                  value={editCategoryValue}
-                                  onChange={(e) => setEditCategoryValue(e.target.value)}
-                                  list="cat-suggestions"
-                                  className="px-2 py-1 text-xs border rounded-lg bg-white w-32 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                                  autoFocus
-                                />
-                                <datalist id="cat-suggestions">
-                                  {availableCategories.map((c) => (
-                                    <option key={c} value={c} />
-                                  ))}
-                                </datalist>
-                                <button
-                                  onClick={() => handleSaveCategory(tx.id)}
-                                  className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"
-                                >
-                                  <Check className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => setEditingTxId(null)}
-                                  className="p-1 text-slate-400 hover:bg-slate-100 rounded"
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            ) : (
-                              <div
-                                onClick={() => {
-                                  setEditingTxId(tx.id);
-                                  setEditCategoryValue(tx.category || "Outros");
-                                }}
-                                className="group flex items-center gap-1.5 cursor-pointer text-xs"
-                                title="Clique para editar a categoria"
-                              >
-                                <span className="inline-block px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium group-hover:bg-indigo-50 group-hover:text-indigo-700 transition">
-                                  {tx.category || "Outros"}
-                                </span>
-                                <Tag className="h-3 w-3 text-slate-300 opacity-0 group-hover:opacity-100 transition" />
-                              </div>
-                            )}
-                          </TableCell>
-
-                          {/* Valor */}
-                          <TableCell
-                            className={`whitespace-nowrap text-right font-bold text-sm ${
-                              isCredit ? "text-emerald-600" : "text-slate-900"
+                        return (
+                          <tr
+                            key={tx.id}
+                            className={`transition ${
+                              isIgnored
+                                ? "opacity-45 bg-slate-50/50"
+                                : "hover:bg-slate-50/60"
                             }`}
                           >
-                            {isCredit ? "+ " : "- "}
-                            {formatCurrency(Number(tx.amount))}
-                          </TableCell>
+                            {/* Estabelecimento com Avatar */}
+                            <td className="py-4 pl-6 pr-4">
+                              <div className="flex items-center gap-3.5">
+                                <div
+                                  className={`h-9 w-9 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${avatar.bg}`}
+                                >
+                                  {avatar.initials}
+                                </div>
+                                <div>
+                                  <p className="font-bold text-slate-900">
+                                    {displayName}
+                                  </p>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">
+                                    {formatDate(tx.date)} •{" "}
+                                    {tx.account_name ||
+                                      (tx.account_type === "BANK"
+                                        ? `${bankAccountName} (Conta)`
+                                        : `${creditAccountName} (Cartão)`)}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
 
-                          {/* Ação de Ignorar/Ativar */}
-                          <TableCell className="text-center">
-                            <button
-                              onClick={() => handleToggleIgnore(tx.id, tx.is_ignored)}
-                              title={
-                                isIgnored
-                                  ? "Transação ignorada nas contas (clique para reativar)"
-                                  : "Ignorar transação (não somar no total de gastos)"
-                              }
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
-                            >
-                              {isIgnored ? (
-                                <EyeOff className="h-4 w-4 text-slate-400" />
+                            {/* Categoria Dropdown Inline */}
+                            <td className="py-4 px-4">
+                              {editingTxId === tx.id ? (
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    value={editCategoryValue}
+                                    onChange={(e) =>
+                                      setEditCategoryValue(e.target.value)
+                                    }
+                                    list="cat-suggestions"
+                                    className="px-2.5 py-1 text-xs border border-slate-300 rounded-lg bg-white w-32 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                    autoFocus
+                                  />
+                                  <datalist id="cat-suggestions">
+                                    {availableCategories.map((c) => (
+                                      <option key={c} value={c} />
+                                    ))}
+                                  </datalist>
+                                  <button
+                                    onClick={() => handleSaveCategory(tx.id)}
+                                    className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingTxId(null)}
+                                    className="p-1 text-slate-400 hover:bg-slate-100 rounded"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
                               ) : (
-                                <Eye className="h-4 w-4 text-slate-400 hover:text-indigo-600" />
+                                <button
+                                  onClick={() => {
+                                    setEditingTxId(tx.id);
+                                    setEditCategoryValue(
+                                      tx.category || "Outros"
+                                    );
+                                  }}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition hover:opacity-80 ${getCategoryBadgeStyle(
+                                    tx.category
+                                  )}`}
+                                >
+                                  <span>{tx.category || "Outros"}</span>
+                                  <ChevronDown className="h-3 w-3 opacity-60" />
+                                </button>
                               )}
-                            </button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
+                            </td>
 
-              {/* Paginação */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 mt-4">
-                  <div className="text-xs text-slate-500">
-                    Página <span className="font-semibold">{currentPage}</span> de{" "}
-                    <span className="font-semibold">{totalPages}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={currentPage <= 1}
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      className="text-xs"
-                    >
-                      Anterior
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={currentPage >= totalPages}
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      className="text-xs"
-                    >
-                      Próxima
-                    </Button>
-                  </div>
+                            {/* Detalhes / Parcela */}
+                            <td className="py-4 px-4">
+                              {isFuture ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/70">
+                                  <Clock className="h-3 w-3" />
+                                  <span>Parcela futura</span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-300">—</span>
+                              )}
+                            </td>
+
+                            {/* Switch iOS: Ignorar no Raio-X */}
+                            <td className="py-4 px-4 text-center">
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={isIgnored}
+                                onClick={() =>
+                                  handleToggleIgnore(tx.id, tx.is_ignored)
+                                }
+                                title={
+                                  isIgnored
+                                    ? "Ignorado nos cálculos (clique para reativar)"
+                                    : "Ativo nos cálculos (clique para ignorar)"
+                                }
+                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                                  isIgnored ? "bg-slate-900" : "bg-slate-200"
+                                }`}
+                              >
+                                <span
+                                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
+                                    isIgnored ? "translate-x-4" : "translate-x-0"
+                                  }`}
+                                />
+                              </button>
+                            </td>
+
+                            {/* Valor */}
+                            <td
+                              className={`py-4 pl-4 pr-6 text-right font-extrabold tabular-nums whitespace-nowrap ${
+                                isCredit ? "text-emerald-600" : "text-slate-900"
+                              }`}
+                            >
+                              {isCredit ? "+ " : "- "}
+                              {formatCurrency(Number(tx.amount))}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Rodapé do Extrato com Resumo e Paginação */}
+              <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs">
+                <div className="flex items-center gap-3 text-slate-500">
+                  <span>
+                    {transactions.length} transações exibidas (total:{" "}
+                    {totalCount})
+                  </span>
+                  {totalPages > 1 && (
+                    <div className="flex items-center gap-1.5 ml-2">
+                      <button
+                        disabled={currentPage <= 1}
+                        onClick={() =>
+                          setCurrentPage((p) => Math.max(1, p - 1))
+                        }
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-700 font-semibold disabled:opacity-40 hover:bg-slate-50"
+                      >
+                        Anterior
+                      </button>
+                      <span className="text-[11px] font-semibold px-1">
+                        {currentPage} / {totalPages}
+                      </span>
+                      <button
+                        disabled={currentPage >= totalPages}
+                        onClick={() =>
+                          setCurrentPage((p) => Math.min(totalPages, p + 1))
+                        }
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-700 font-semibold disabled:opacity-40 hover:bg-slate-50"
+                      >
+                        Próxima
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
+
+                <div className="flex items-center gap-4 font-semibold">
+                  <span className="text-slate-500">
+                    Entradas{" "}
+                    <strong className="text-emerald-600">
+                      +{formatCurrency(pageTotals.income)}
+                    </strong>
+                  </span>
+                  <span className="text-slate-500">
+                    Saídas{" "}
+                    <strong className="text-slate-900">
+                      -{formatCurrency(pageTotals.expense)}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================================== */}
+        {/* ABA 4: METAS FINANCEIRAS (IDÊNTICO AO PRINT 5 DO FIGMA)               */}
+        {/* ===================================================================== */}
+        {activeTab === "goals" && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                  SEUS PRÓXIMOS PASSOS
+                </p>
+                <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 mt-1">
+                  Metas
+                </h1>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Planos concretos para o dinheiro que você ainda vai construir.
+                </p>
+              </div>
+
+              <button
+                onClick={handleOpenNewGoal}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-950 hover:bg-slate-800 text-white shadow-xs transition self-start sm:self-auto"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Nova Meta</span>
+              </button>
+            </div>
+
+            {goals.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200/90 bg-white p-12 text-center shadow-2xs space-y-3">
+                <div className="h-12 w-12 rounded-2xl bg-slate-50 text-slate-400 mx-auto flex items-center justify-center">
+                  <Target className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Nenhuma meta cadastrada
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                    Crie objetivos para guardar dinheiro (ex: Reserva de emergência, Viagem, etc.) e acompanhe sua evolução.
+                  </p>
+                </div>
+                <button
+                  onClick={handleOpenNewGoal}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-slate-950 hover:bg-slate-800 text-white shadow-xs transition"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Criar primeira meta</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {goals.map((goal) => {
+                  const barColorClass =
+                    goal.color === "indigo"
+                      ? "bg-indigo-600"
+                      : goal.color === "amber"
+                      ? "bg-amber-500"
+                      : goal.color === "rose"
+                      ? "bg-rose-600"
+                      : "bg-emerald-600";
+
+                  return (
+                    <div
+                      key={goal.id}
+                      className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-2xs flex flex-col justify-between space-y-6 hover:border-slate-300 transition"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="h-10 w-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
+                          <Target className="h-4 w-4" />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleOpenEditGoal(goal)}
+                            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                            title="Editar meta / atualizar saldo guardado"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteGoal(goal.id, goal.name)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                            title="Excluir meta"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          {goal.name}
+                        </h3>
+                        <p className="text-2xl font-extrabold text-slate-950 tabular-nums mt-1">
+                          {formatCurrency(goal.current_amount)}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          de {formatCurrency(goal.target_amount)}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${barColorClass}`}
+                            style={{
+                              width: `${Math.min(100, goal.progress_percentage)}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="flex justify-end">
+                          <span className="text-xs font-bold text-slate-500">
+                            {Math.round(goal.progress_percentage)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Rodapé Minimalista */}
+        <footer className="pt-6 pb-8 text-center text-[11px] text-slate-400 flex items-center justify-center gap-2">
+          <span>
+            Nexo Finanças Pessoais • Conectado via Pluggy Open Finance
+          </span>
+        </footer>
+      </main>
 
       {/* ========================================================================= */}
-      {/* MODAL 1: CONFIGURAÇÃO DO CICLO DA FATURA                                  */}
+      {/* MODAL 1: CONFIGURAÇÃO DO CICLO E VALOR DA FATURA                          */}
       {/* ========================================================================= */}
       {isCardModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6 border border-slate-200 space-y-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200 space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-slate-100 text-slate-700 rounded-lg">
+                <div className="p-2 bg-slate-100 text-slate-700 rounded-xl">
                   <SlidersHorizontal className="h-4 w-4" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-900 tracking-tight">
-                    Configuração da Fatura
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Configurar Fatura & Ciclo do Cartão
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Ajuste o ciclo de fechamento, vencimento e o cálculo
+                    Personalize datas e modo de apuração da fatura
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setIsCardModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             <div className="space-y-4">
-              {/* Dias de Fechamento e Vencimento */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-600">
+                  <label className="text-xs font-semibold text-slate-700">
                     Dia de Fechamento:
                   </label>
-                  <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-2.5 py-1.5 bg-slate-50/50 focus-within:ring-1 focus-within:ring-slate-400 focus-within:border-slate-400">
-                    <Calendar className="h-4 w-4 text-slate-400" />
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      value={closingDayInput}
-                      onChange={(e) => setClosingDayInput(Number(e.target.value))}
-                      className="w-full text-sm font-bold text-slate-900 bg-transparent focus:outline-none"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-400">Ex: Todo dia 2</p>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={closingDayInput}
+                    onChange={(e) => setClosingDayInput(Number(e.target.value))}
+                    className="w-full px-3 py-2 text-sm font-bold border border-slate-200 rounded-xl"
+                  />
                 </div>
-
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-600">
+                  <label className="text-xs font-semibold text-slate-700">
                     Dia de Vencimento:
                   </label>
-                  <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-2.5 py-1.5 bg-slate-50/50 focus-within:ring-1 focus-within:ring-slate-400 focus-within:border-slate-400">
-                    <Calendar className="h-4 w-4 text-slate-400" />
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      value={dueDayInput}
-                      onChange={(e) => setDueDayInput(Number(e.target.value))}
-                      className="w-full text-sm font-bold text-slate-900 bg-transparent focus:outline-none"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-400">Ex: Todo dia 7</p>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={dueDayInput}
+                    onChange={(e) => setDueDayInput(Number(e.target.value))}
+                    className="w-full px-3 py-2 text-sm font-bold border border-slate-200 rounded-xl"
+                  />
                 </div>
               </div>
 
-              {/* Modo de Cálculo do Valor */}
               <div className="space-y-2 pt-2 border-t border-slate-100">
-                <label className="text-xs font-semibold text-slate-600 block">
-                  Valor da Fatura deste Mês:
+                <label className="text-xs font-semibold text-slate-700 block">
+                  Valor da Fatura do Mês:
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     onClick={() => setBillMode("auto")}
-                    className={`px-3 py-2.5 rounded-lg text-xs font-semibold border text-left transition ${
+                    className={`p-3 rounded-xl text-xs font-semibold border text-left transition ${
                       billMode === "auto"
-                        ? "bg-slate-900 border-slate-900 text-white"
+                        ? "bg-slate-950 border-slate-950 text-white"
                         : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
                     }`}
                   >
                     <div className="flex items-center gap-1.5">
                       <Sparkles className="h-3.5 w-3.5" />
-                      <span>Dinâmico Auto</span>
+                      <span>Automático</span>
                     </div>
-                    <p className={`text-[10px] mt-1 font-normal ${billMode === "auto" ? "text-slate-300" : "text-slate-400"}`}>
-                      Soma automática de compras e parcelas do ciclo.
+                    <p
+                      className={`text-[10px] mt-1 font-normal ${
+                        billMode === "auto" ? "text-slate-300" : "text-slate-400"
+                      }`}
+                    >
+                      Calcula pelo extrato sincronizado.
                     </p>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setBillMode("custom")}
-                    className={`px-3 py-2.5 rounded-lg text-xs font-semibold border text-left transition ${
+                    className={`p-3 rounded-xl text-xs font-semibold border text-left transition ${
                       billMode === "custom"
-                        ? "bg-slate-900 border-slate-900 text-white"
+                        ? "bg-slate-950 border-slate-950 text-white"
                         : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
                     }`}
                   >
@@ -1910,39 +2564,40 @@ export default function DashboardPage() {
                       <Pencil className="h-3.5 w-3.5" />
                       <span>Definir Manual</span>
                     </div>
-                    <p className={`text-[10px] mt-1 font-normal ${billMode === "custom" ? "text-slate-300" : "text-slate-400"}`}>
-                      Informar o valor exato no app do banco.
+                    <p
+                      className={`text-[10px] mt-1 font-normal ${
+                        billMode === "custom"
+                          ? "text-slate-300"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      Informar valor exato no app {creditAccountName}.
                     </p>
                   </button>
                 </div>
 
                 {billMode === "custom" && (
-                  <div className="mt-2.5 p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
+                  <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
                     <label className="text-xs font-semibold text-slate-700 block">
-                      Valor Exato da Fatura:
+                      Valor Exato da Fatura (R$):
                     </label>
-                    <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-md px-2.5 py-1.5">
-                      <span className="text-xs font-bold text-slate-400">R$</span>
-                      <input
-                        type="text"
-                        value={customBillInput}
-                        onChange={(e) => setCustomBillInput(e.target.value)}
-                        placeholder="Ex: 1127.00"
-                        className="w-full text-sm font-bold text-slate-900 focus:outline-none"
-                        autoFocus
-                      />
-                    </div>
+                    <input
+                      type="text"
+                      value={customBillInput}
+                      onChange={(e) => setCustomBillInput(e.target.value)}
+                      placeholder={String(proj?.current_bill || "1127.00")}
+                      className="w-full px-3 py-1.5 text-sm font-bold bg-white border border-slate-300 rounded-lg"
+                    />
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Ações */}
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setIsCardModalOpen(false)}
-                className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
               >
                 Cancelar
               </button>
@@ -1950,7 +2605,7 @@ export default function DashboardPage() {
                 type="button"
                 onClick={handleSaveCardSettings}
                 disabled={savingCardSettings}
-                className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 rounded-lg transition"
+                className="px-4 py-2 text-xs font-bold text-white bg-slate-950 hover:bg-slate-800 rounded-xl"
               >
                 {savingCardSettings ? "Salvando..." : "Salvar Configurações"}
               </button>
@@ -1960,28 +2615,28 @@ export default function DashboardPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 2: CRIAR / EDITAR CONTA FIXA                                        */}
+      {/* MODAL 2: ADICIONAR / EDITAR CONTA FIXA                                    */}
       {/* ========================================================================= */}
       {isBillModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6 border border-slate-200 space-y-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200 space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-slate-100 text-slate-700 rounded-lg">
+                <div className="p-2 bg-slate-100 text-slate-700 rounded-xl">
                   <Receipt className="h-4 w-4" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-900 tracking-tight">
+                  <h3 className="text-sm font-bold text-slate-900">
                     {editingBillItem ? "Editar Conta Fixa" : "Nova Conta Fixa"}
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Defina o valor e dia de vencimento mensal
+                    Compromisso recorrente descontado no Raio-X
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setIsBillModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1996,8 +2651,8 @@ export default function DashboardPage() {
                   type="text"
                   value={billFormName}
                   onChange={(e) => setBillFormName(e.target.value)}
-                  placeholder="Ex: Ajuda Pai, Internet Fibra, Energia, Aluguel"
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400 transition"
+                  placeholder="Ex: Ajuda Pai, Internet Vivo, Conta de Luz"
+                  className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200"
                   autoFocus
                 />
               </div>
@@ -2007,34 +2662,26 @@ export default function DashboardPage() {
                   <label className="text-xs font-semibold text-slate-700">
                     Valor Mensal (R$):
                   </label>
-                  <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus-within:ring-1 focus-within:ring-slate-400">
-                    <span className="text-xs font-bold text-slate-400">R$</span>
-                    <input
-                      type="text"
-                      value={billFormAmount}
-                      onChange={(e) => setBillFormAmount(e.target.value)}
-                      placeholder="320.00"
-                      className="w-full text-sm font-bold text-slate-900 focus:outline-none"
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    value={billFormAmount}
+                    onChange={(e) => setBillFormAmount(e.target.value)}
+                    placeholder="320.00"
+                    className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-200"
+                  />
                 </div>
-
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700">
                     Dia de Vencimento:
                   </label>
-                  <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus-within:ring-1 focus-within:ring-slate-400">
-                    <Calendar className="h-4 w-4 text-slate-400" />
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      value={billFormDueDay}
-                      onChange={(e) => setBillFormDueDay(Number(e.target.value))}
-                      className="w-full text-sm font-bold text-slate-900 focus:outline-none"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-400">Todo dia do mês</p>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={billFormDueDay}
+                    onChange={(e) => setBillFormDueDay(Number(e.target.value))}
+                    className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-200"
+                  />
                 </div>
               </div>
 
@@ -2045,12 +2692,12 @@ export default function DashboardPage() {
                 <select
                   value={billFormCategory}
                   onChange={(e) => setBillFormCategory(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-slate-400 transition"
+                  className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200 bg-white"
                 >
                   <option value="Família">Família</option>
-                  <option value="Moradia">Moradia (Aluguel, Condomínio)</option>
-                  <option value="Serviços">Serviços (Internet, Celular)</option>
-                  <option value="Utilidades">Utilidades (Água, Luz, Gás)</option>
+                  <option value="Moradia">Moradia</option>
+                  <option value="Assinaturas">Assinaturas</option>
+                  <option value="Serviços">Serviços</option>
                   <option value="Saúde">Saúde</option>
                   <option value="Educação">Educação</option>
                   <option value="Outros">Outros</option>
@@ -2058,12 +2705,11 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Ações do Modal de Conta Fixa */}
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setIsBillModalOpen(false)}
-                className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
               >
                 Cancelar
               </button>
@@ -2071,14 +2717,134 @@ export default function DashboardPage() {
                 type="button"
                 onClick={handleSaveBill}
                 disabled={savingBill || !billFormName.trim()}
-                className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 rounded-lg transition"
+                className="px-4 py-2 text-xs font-bold text-white bg-slate-950 hover:bg-slate-800 disabled:opacity-50 rounded-xl"
               >
-                {savingBill ? "Salvando..." : editingBillItem ? "Salvar Alterações" : "Criar Conta Fixa"}
+                {savingBill ? "Salvando..." : "Salvar Conta"}
               </button>
             </div>
           </div>
         </div>
       )}
-    </main>
+
+      {/* ========================================================================= */}
+      {/* MODAL 3: NOVA / EDITAR META FINANCEIRA                                    */}
+      {/* ========================================================================= */}
+      {isGoalModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-slate-100 text-slate-700 rounded-xl">
+                  <Target className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {editingGoal ? "Editar Meta" : "Nova Meta Financeira"}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Defina o valor objetivo e acompanhe sua evolução
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsGoalModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">
+                  Nome do Objetivo:
+                </label>
+                <input
+                  type="text"
+                  value={goalFormName}
+                  onChange={(e) => setGoalFormName(e.target.value)}
+                  placeholder="Ex: Reserva de emergência, Viagem, Notebook"
+                  className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">
+                    Já Guardado (R$):
+                  </label>
+                  <input
+                    type="text"
+                    value={goalFormCurrent}
+                    onChange={(e) => setGoalFormCurrent(e.target.value)}
+                    placeholder="900.00"
+                    className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-200"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">
+                    Meta Total (R$):
+                  </label>
+                  <input
+                    type="text"
+                    value={goalFormTarget}
+                    onChange={(e) => setGoalFormTarget(e.target.value)}
+                    placeholder="5000.00"
+                    className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-200"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">
+                  Cor da Barra:
+                </label>
+                <div className="flex items-center gap-2 pt-1">
+                  {[
+                    { id: "emerald", label: "Verde", cls: "bg-emerald-600" },
+                    { id: "indigo", label: "Azul/Roxo", cls: "bg-indigo-600" },
+                    { id: "amber", label: "Laranja", cls: "bg-amber-500" },
+                    { id: "rose", label: "Rosa", cls: "bg-rose-600" },
+                  ].map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setGoalFormColor(c.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 ${
+                        goalFormColor === c.id
+                          ? "border-slate-900 bg-slate-50 font-bold"
+                          : "border-slate-200 text-slate-600"
+                      }`}
+                    >
+                      <span className={`h-2.5 w-2.5 rounded-full ${c.cls}`} />
+                      <span>{c.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsGoalModalOpen(false)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveGoal}
+                disabled={savingGoal || !goalFormName.trim()}
+                className="px-4 py-2 text-xs font-bold text-white bg-slate-950 hover:bg-slate-800 disabled:opacity-50 rounded-xl"
+              >
+                {savingGoal ? "Salvando..." : "Salvar Meta"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

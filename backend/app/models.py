@@ -77,3 +77,17 @@ class RecurringBill(Base):
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class FinancialGoal(Base):
+    __tablename__ = "financial_goals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    current_amount = Column(Numeric(14, 2), nullable=False, default=0.00)
+    target_amount = Column(Numeric(14, 2), nullable=False, default=1000.00)
+    color = Column(String(50), nullable=False, default="emerald")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

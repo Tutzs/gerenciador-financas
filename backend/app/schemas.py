@@ -148,3 +148,28 @@ class SyncResponse(BaseModel):
     accounts_synced: int
     transactions_upserted: int
     message: str
+
+
+class FinancialGoalCreate(BaseModel):
+    name: str
+    current_amount: float = 0.0
+    target_amount: float
+    color: str = "emerald"
+
+
+class FinancialGoalUpdate(BaseModel):
+    name: Optional[str] = None
+    current_amount: Optional[float] = None
+    target_amount: Optional[float] = None
+    color: Optional[str] = None
+
+
+class FinancialGoalResponse(BaseModel):
+    id: int
+    name: str
+    current_amount: float
+    target_amount: float
+    color: str
+    progress_percentage: float
+    created_at: Optional[datetime] = None
+

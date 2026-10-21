@@ -14,13 +14,16 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
 from app.database import Base, engine, get_db
-from app.models import Account, Transaction, TransactionType, RecurringBill
+from app.models import Account, Transaction, TransactionType, RecurringBill, FinancialGoal
 from app.schemas import (
     AccountResponse,
     CardSettings,
     CardSettingsUpdateRequest,
     CategoryExpense,
     DashboardMetricsResponse,
+    FinancialGoalCreate,
+    FinancialGoalResponse,
+    FinancialGoalUpdate,
     FutureCommitmentItem,
     PaginatedTransactionsResponse,
     RecurringBillCreate,
@@ -806,6 +809,97 @@ def toggle_recurring_bill_paid(bill_id: int, db: Session = Depends(get_db)):
         is_paid_this_month=(bill.last_paid_month == curr_ym),
         created_at=bill.created_at,
     )
+
+
+def _format_goal(g: FinancialGoal) -> FinancialGoalResponse:
+    curr = float(g.current_amount or 0.0)
+    targ = max(1.0, float(g.target_amount or 1.0))
+    pct = min(100.0, round((curr / targ) * 100.0, 1))
+    return FinancialGoalResponse(
+        id=g.id,
+        name=g.name,
+        current_amount=round(curr, 2),
+        target_amount=round(targ, 2),
+        color=g.color or "emerald",
+        progress_percentage=pct,
+        created_at=g.created_at,
+    )
+
+
+@app.get("/api/v1/goals", response_model= list[FinancialGoalResponse])
+def list_financial_goals(db: Session = Depends(get_db)):
+    """Lista todas as metas financeiras e só cria exemplos na primeiríssima execução."""
+    try:
+        seeded = db.execute(
+            text("SELECT value FROM app_settings WHERE key = 'goals_initialized'")
+        ).first()
+    except Exception:
+        seeded = None
+
+    if not seeded:
+        try:
+            db.execute(
+                text(
+                    "INSERT INTO app_settings (key, value) VALUES ('goals_initialized', '1') "
+                    "ON CONFLICT(key) DO NOTHING"
+                )
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    goals = db.query(FinancialGoal).order_by(FinancialGoal.id.asc()).all()
+    return [_format_goal(g) for g in goals]
+
+
+@app.post("/api/v1/goals", response_model=FinancialGoalResponse)
+def create_financial_goal(payload: FinancialGoalCreate, db: Session = Depends(get_db)):
+    """Cria uma nova meta financeira."""
+    new_goal = FinancialGoal(
+        name=payload.name.strip(),
+        current_amount=max(0.0, float(payload.current_amount)),
+        target_amount=max(1.0, float(payload.target_amount)),
+        color=payload.color or "emerald",
+    )
+    db.add(new_goal)
+    db.commit()
+    db.refresh(new_goal)
+    return _format_goal(new_goal)
+
+
+@app.patch("/api/v1/goals/{goal_id}", response_model=FinancialGoalResponse)
+def update_financial_goal(
+    goal_id: int, payload: FinancialGoalUpdate, db: Session = Depends(get_db)
+):
+    """Atualiza uma meta financeira existente."""
+    goal = db.query(FinancialGoal).filter(FinancialGoal.id == goal_id).first()
+    if not goal:
+        raise HTTPException(status_code=404, detail="Meta não encontrada.")
+
+    if payload.name is not None and payload.name.strip():
+        goal.name = payload.name.strip()
+    if payload.current_amount is not None:
+        goal.current_amount = max(0.0, float(payload.current_amount))
+    if payload.target_amount is not None:
+        goal.target_amount = max(1.0, float(payload.target_amount))
+    if payload.color is not None:
+        goal.color = payload.color
+
+    db.commit()
+    db.refresh(goal)
+    return _format_goal(goal)
+
+
+@app.delete("/api/v1/goals/{goal_id}")
+def delete_financial_goal(goal_id: int, db: Session = Depends(get_db)):
+    """Exclui uma meta financeira."""
+    goal = db.query(FinancialGoal).filter(FinancialGoal.id == goal_id).first()
+    if not goal:
+        raise HTTPException(status_code=404, detail="Meta não encontrada.")
+    db.delete(goal)
+    db.commit()
+    return {"status": "success", "message": "Meta excluída com sucesso."}
+
 
 
 @app.get("/connect", response_class=HTMLResponse)
