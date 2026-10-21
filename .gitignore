@@ -15,8 +15,12 @@ node_modules/
 out/
 *.tsbuildinfo
 
-# SQLite raiz temporário
+# SQLite / Bancos de Dados Locais (Nunca envie dados financeiros reais ao GitHub)
+*.db
+*.sqlite
+*.sqlite3
 /finance.db
+backend/finance.db
 
 # Postgres
 postgres_data/
