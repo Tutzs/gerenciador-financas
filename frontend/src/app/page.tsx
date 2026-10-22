@@ -981,6 +981,14 @@ export default function DashboardPage() {
     () => metrics.accounts.find((a) => a.type === "BANK"),
     [metrics.accounts]
   );
+  const bankAccounts = useMemo(
+    () => metrics.accounts.filter((a) => a.type === "BANK"),
+    [metrics.accounts]
+  );
+  const creditAccounts = useMemo(
+    () => metrics.accounts.filter((a) => a.type === "CREDIT"),
+    [metrics.accounts]
+  );
 
   const creditAccountName = creditAccount?.name || "Cartão de Crédito";
   const bankAccountName = bankAccount?.name || "Conta Corrente";
@@ -2210,6 +2218,309 @@ export default function DashboardPage() {
                 <Download className="h-3.5 w-3.5" />
                 <span>Exportar CSV</span>
               </button>
+            </div>
+
+            {/* Dashboard / Resumo Financeiro Rápido do Extrato */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Card 1: Fatura Aberta do Cartão */}
+              <div
+                onClick={() => {
+                  if (creditAccount) {
+                    if (selectedAccountId === creditAccount.id && period === "current_month") {
+                      setSelectedAccountId(null);
+                    } else {
+                      setSelectedAccountId(creditAccount.id);
+                      setPeriod("current_month");
+                    }
+                    setCurrentPage(1);
+                  }
+                }}
+                className={`p-4 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group ${
+                  selectedAccountId === creditAccount?.id && period === "current_month"
+                    ? "bg-slate-900 border-slate-900 text-white shadow-sm"
+                    : "bg-white border-slate-200/90 hover:border-slate-300 shadow-2xs"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div
+                    className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+                      selectedAccountId === creditAccount?.id && period === "current_month"
+                        ? "bg-white/10 text-white"
+                        : "bg-indigo-50 text-indigo-600 border border-indigo-100"
+                    }`}
+                  >
+                    <CreditCard className="h-4 w-4" />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                        selectedAccountId === creditAccount?.id && period === "current_month"
+                          ? "bg-white/20 text-white"
+                          : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {proj?.is_bill_custom ? "Manual" : "Ciclo atual"}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsCardModalOpen(true);
+                      }}
+                      title="Configurar datas e valor da fatura"
+                      className={`p-1 rounded-lg transition ${
+                        selectedAccountId === creditAccount?.id && period === "current_month"
+                          ? "text-slate-300 hover:text-white hover:bg-white/10"
+                          : "text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <p
+                    className={`text-xs font-semibold ${
+                      selectedAccountId === creditAccount?.id && period === "current_month"
+                        ? "text-slate-300"
+                        : "text-slate-500"
+                    }`}
+                  >
+                    Fatura Aberta ({creditAccountName})
+                  </p>
+                  <p
+                    className={`text-xl font-black tracking-tight tabular-nums mt-0.5 ${
+                      selectedAccountId === creditAccount?.id && period === "current_month"
+                        ? "text-white"
+                        : "text-slate-950"
+                    }`}
+                  >
+                    {formatCurrency(proj?.current_bill ?? 0)}
+                  </p>
+                </div>
+
+                <div
+                  className={`mt-2.5 pt-2 border-t flex items-center justify-between text-[11px] ${
+                    selectedAccountId === creditAccount?.id && period === "current_month"
+                      ? "border-white/10 text-slate-300"
+                      : "border-slate-100 text-slate-400"
+                  }`}
+                >
+                  <span>Fecha dia {proj?.bill_closing_day ?? 2} • Vence dia {proj?.bill_due_day ?? 7}</span>
+                  <span className="font-semibold text-indigo-500 group-hover:translate-x-0.5 transition">
+                    {selectedAccountId === creditAccount?.id && period === "current_month" ? "Filtrado ✓" : "Filtrar cartão →"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Card 2: Parcelas Futuras */}
+              <div
+                onClick={() => {
+                  if (period === "future") {
+                    setPeriod("current_month");
+                  } else {
+                    setPeriod("future");
+                    setSelectedAccountId(null);
+                  }
+                  setCurrentPage(1);
+                }}
+                className={`p-4 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group ${
+                  period === "future"
+                    ? "bg-slate-900 border-slate-900 text-white shadow-sm"
+                    : "bg-white border-slate-200/90 hover:border-slate-300 shadow-2xs"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div
+                    className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+                      period === "future"
+                        ? "bg-white/10 text-white"
+                        : "bg-amber-50 text-amber-600 border border-amber-100"
+                    }`}
+                  >
+                    <Clock className="h-4 w-4" />
+                  </div>
+                  <span
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                      period === "future"
+                        ? "bg-white/20 text-white"
+                        : "bg-amber-100/60 text-amber-800"
+                    }`}
+                  >
+                    {metrics.future_commitments.length} mês(es)
+                  </span>
+                </div>
+
+                <div className="mt-3">
+                  <p
+                    className={`text-xs font-semibold ${
+                      period === "future" ? "text-slate-300" : "text-slate-500"
+                    }`}
+                  >
+                    Parcelas Futuras do Cartão
+                  </p>
+                  <p
+                    className={`text-xl font-black tracking-tight tabular-nums mt-0.5 ${
+                      period === "future" ? "text-white" : "text-slate-950"
+                    }`}
+                  >
+                    {formatCurrency(metrics.future_commitments_total)}
+                  </p>
+                </div>
+
+                <div
+                  className={`mt-2.5 pt-2 border-t flex items-center justify-between text-[11px] ${
+                    period === "future"
+                      ? "border-white/10 text-slate-300"
+                      : "border-slate-100 text-slate-400"
+                  }`}
+                >
+                  <span>Compras já programadas</span>
+                  <span className="font-semibold text-amber-600 group-hover:translate-x-0.5 transition">
+                    {period === "future" ? "Filtrado ✓" : "Ver parcelas →"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Card 3: Despesas Totais do Mês */}
+              <div
+                onClick={() => {
+                  setPeriod("current_month");
+                  setSelectedAccountId(null);
+                  setCurrentPage(1);
+                }}
+                className={`p-4 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group ${
+                  period === "current_month" && selectedAccountId === null
+                    ? "bg-slate-900 border-slate-900 text-white shadow-sm"
+                    : "bg-white border-slate-200/90 hover:border-slate-300 shadow-2xs"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div
+                    className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+                      period === "current_month" && selectedAccountId === null
+                        ? "bg-white/10 text-white"
+                        : "bg-rose-50 text-rose-600 border border-rose-100"
+                    }`}
+                  >
+                    <Receipt className="h-4 w-4" />
+                  </div>
+                  <span
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                      period === "current_month" && selectedAccountId === null
+                        ? "bg-white/20 text-white"
+                        : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    Gastos reais
+                  </span>
+                </div>
+
+                <div className="mt-3">
+                  <p
+                    className={`text-xs font-semibold ${
+                      period === "current_month" && selectedAccountId === null
+                        ? "text-slate-300"
+                        : "text-slate-500"
+                    }`}
+                  >
+                    Despesas do Mês Atual
+                  </p>
+                  <p
+                    className={`text-xl font-black tracking-tight tabular-nums mt-0.5 ${
+                      period === "current_month" && selectedAccountId === null
+                        ? "text-white"
+                        : "text-slate-950"
+                    }`}
+                  >
+                    {formatCurrency(metrics.monthly_expenses)}
+                  </p>
+                </div>
+
+                <div
+                  className={`mt-2.5 pt-2 border-t flex items-center justify-between text-[11px] ${
+                    period === "current_month" && selectedAccountId === null
+                      ? "border-white/10 text-slate-300"
+                      : "border-slate-100 text-slate-400"
+                  }`}
+                >
+                  <span>Todas as saídas do mês</span>
+                  <span className="font-semibold text-rose-500 group-hover:translate-x-0.5 transition">
+                    {period === "current_month" && selectedAccountId === null ? "Filtrado ✓" : "Ver mês →"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Card 4: Saldo Disponível em Contas */}
+              <div
+                onClick={() => {
+                  if (bankAccount) {
+                    if (selectedAccountId === bankAccount.id) {
+                      setSelectedAccountId(null);
+                    } else {
+                      setSelectedAccountId(bankAccount.id);
+                      setPeriod("current_month");
+                    }
+                    setCurrentPage(1);
+                  }
+                }}
+                className={`p-4 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group ${
+                  selectedAccountId === bankAccount?.id
+                    ? "bg-slate-900 border-slate-900 text-white shadow-sm"
+                    : "bg-white border-slate-200/90 hover:border-slate-300 shadow-2xs"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div
+                    className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+                      selectedAccountId === bankAccount?.id
+                        ? "bg-white/10 text-white"
+                        : "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                    }`}
+                  >
+                    <Wallet className="h-4 w-4" />
+                  </div>
+                  <span
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                      selectedAccountId === bankAccount?.id
+                        ? "bg-white/20 text-white"
+                        : "bg-emerald-50 text-emerald-700"
+                    }`}
+                  >
+                    {bankAccounts.length} conta(s)
+                  </span>
+                </div>
+
+                <div className="mt-3">
+                  <p
+                    className={`text-xs font-semibold ${
+                      selectedAccountId === bankAccount?.id ? "text-slate-300" : "text-slate-500"
+                    }`}
+                  >
+                    Saldo em Conta ({bankAccountName})
+                  </p>
+                  <p
+                    className={`text-xl font-black tracking-tight tabular-nums mt-0.5 ${
+                      selectedAccountId === bankAccount?.id ? "text-white" : "text-slate-950"
+                    }`}
+                  >
+                    {formatCurrency(metrics.bank_balance)}
+                  </p>
+                </div>
+
+                <div
+                  className={`mt-2.5 pt-2 border-t flex items-center justify-between text-[11px] ${
+                    selectedAccountId === bankAccount?.id
+                      ? "border-white/10 text-slate-300"
+                      : "border-slate-100 text-slate-400"
+                  }`}
+                >
+                  <span>Saldo à vista disponível</span>
+                  <span className="font-semibold text-emerald-600 group-hover:translate-x-0.5 transition">
+                    {selectedAccountId === bankAccount?.id ? "Filtrado ✓" : "Filtrar conta →"}
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Card Principal do Extrato */}

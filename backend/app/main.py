@@ -1492,7 +1492,10 @@ if os.path.isdir(FRONTEND_DIST):
     async def serve_index():
         index_file = os.path.join(FRONTEND_DIST, "index.html")
         if os.path.isfile(index_file):
-            return FileResponse(index_file)
+            return FileResponse(
+                index_file,
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
+            )
         return HTMLResponse("<h1>Frontend build not found</h1>", status_code=404)
 
     @app.get("/{full_path:path}")
@@ -1501,9 +1504,19 @@ if os.path.isdir(FRONTEND_DIST):
             raise HTTPException(status_code=404, detail="Endpoint não encontrado")
         candidate = os.path.join(FRONTEND_DIST, full_path)
         if os.path.isfile(candidate):
+            # Arquivos estáticos em _next podem ser cacheados com segurança
             return FileResponse(candidate)
+
+        # Se for uma extensão de asset ou rota de asset, NUNCA retorne index.html (evita erro de MIME type no CSS/JS)
+        asset_extensions = (".css", ".js", ".png", ".jpg", ".jpeg", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".map", ".json")
+        if full_path.startswith("_next/") or full_path.startswith("static/") or any(full_path.endswith(ext) for ext in asset_extensions):
+            raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+
         index_file = os.path.join(FRONTEND_DIST, "index.html")
         if os.path.isfile(index_file):
-            return FileResponse(index_file)
+            return FileResponse(
+                index_file,
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"},
+            )
         raise HTTPException(status_code=404, detail="Arquivo não encontrado")
 
