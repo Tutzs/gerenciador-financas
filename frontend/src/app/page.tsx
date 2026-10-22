@@ -318,6 +318,9 @@ export default function DashboardPage() {
   const [newCaixinhaBalance, setNewCaixinhaBalance] = useState<string>("");
   const [isCreatingCaixinha, setIsCreatingCaixinha] = useState<boolean>(false);
 
+  // Modo de visualização do Raio-X: "cash" (Caixa Hoje) ou "projection" (Projeção + Salário)
+  const [balanceViewMode, setBalanceViewMode] = useState<"cash" | "projection">("cash");
+
   // Configuração do Salário
   const [isEditingSalary, setIsEditingSalary] = useState<boolean>(false);
   const [salaryInput, setSalaryInput] = useState<string>("0");
@@ -900,10 +903,38 @@ export default function DashboardPage() {
   };
 
   const proj = metrics.salary_projection;
-  const freeBalance = proj?.free_balance ?? 0;
+
+  // 1. Valores de Caixa Imediato (Hoje no Bolso - sem contar salário que ainda não caiu)
+  const immediateAvailable = (proj?.bank_balance ?? 0) + (proj?.caixinhas_liquid_total ?? 0);
+  const totalCommitments = (proj?.current_bill ?? 0) + (proj?.recurring_bills_pending ?? 0);
+  const immediateCashBalance = immediateAvailable - totalCommitments;
+  const immediateCommitmentPct =
+    immediateAvailable > 0
+      ? Math.min(100, Math.max(0, (totalCommitments / immediateAvailable) * 100))
+      : 100;
+  const immediateDailyBudget =
+    immediateCashBalance > 0 && (proj?.days_remaining ?? 30) > 0
+      ? immediateCashBalance / (proj?.days_remaining ?? 30)
+      : 0;
+
+  // 2. Valores de Projeção com Salário Previsto (Fim do Ciclo)
+  const projectedBalance = proj?.free_balance ?? 0;
+  const projectedAvailable = proj?.total_available ?? 0;
+  const projectedCommitmentPct = Math.min(100, Math.max(0, proj?.commitment_percentage ?? 0));
+  const projectedDailyBudget = proj?.daily_budget ?? 0;
+
+  // 3. Valores Ativos de acordo com o Toggle ("cash" vs "projection")
+  const isCashMode = balanceViewMode === "cash";
+  const activeFreeBalance = isCashMode ? immediateCashBalance : projectedBalance;
+  const activeTotalAvailable = isCashMode ? immediateAvailable : projectedAvailable;
+  const activeCommitmentPct = isCashMode ? immediateCommitmentPct : projectedCommitmentPct;
+  const activeFreePct = Math.max(0, Number((100 - activeCommitmentPct).toFixed(1)));
+  const activeDailyBudget = isCashMode ? immediateDailyBudget : projectedDailyBudget;
+
+  const freeBalance = activeFreeBalance;
   const freeParts = splitCurrencyParts(freeBalance);
-  const commitmentPct = Math.min(100, Math.max(0, proj?.commitment_percentage ?? 0));
-  const freePct = Math.max(0, Number((100 - commitmentPct).toFixed(1)));
+  const commitmentPct = activeCommitmentPct;
+  const freePct = activeFreePct;
 
   // Simulador "Cabe no meu bolso?"
   const simulatedSpend = useMemo(() => {
@@ -1209,7 +1240,9 @@ export default function DashboardPage() {
                 </p>
                 <div className="flex items-center gap-2 mt-1">
                   <h1 className="text-3xl font-extrabold tracking-tight text-slate-950">
-                    Tudo sob controle{userName ? `, ${userName}` : ""}.
+                    {freeBalance < 0
+                      ? `Atenção ao orçamento${userName ? `, ${userName}` : ""}.`
+                      : `Tudo sob controle${userName ? `, ${userName}` : ""}.`}
                   </h1>
                   <button
                     onClick={() => setIsSettingsModalOpen(true)}
@@ -1240,7 +1273,7 @@ export default function DashboardPage() {
 
             {/* HERO GRID: "Livre depois das contas" (7 cols) + "A conta é simples" (5 cols) */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-              {/* CARD ESQUERDO: LIVRE DEPOIS DAS CONTAS */}
+              {/* CARD ESQUERDO: LIVRE DEPOIS DAS CONTAS / CAIXA HOJE */}
               <div
                 className={`lg:col-span-7 rounded-2xl border overflow-hidden flex flex-col justify-between shadow-2xs transition ${
                   freeBalance < 0
@@ -1249,8 +1282,8 @@ export default function DashboardPage() {
                 }`}
               >
                 <div className="p-6 sm:p-7 space-y-5">
-                  {/* Topo do Card */}
-                  <div className="flex items-center justify-between">
+                  {/* Topo do Card com Segmented Control / Toggle */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
                       <Wallet
                         className={`h-4 w-4 ${
@@ -1262,22 +1295,57 @@ export default function DashboardPage() {
                           freeBalance < 0 ? "text-rose-900" : "text-emerald-900"
                         }`}
                       >
-                        Livre depois das contas
+                        {isCashMode ? "Caixa Imediato (Hoje no banco)" : "Livre depois das contas"}
                       </span>
                     </div>
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
-                        freeBalance < 0
-                          ? "bg-white/90 text-rose-700 border-rose-200"
-                          : "bg-white/90 text-emerald-700 border-emerald-200"
-                      }`}
-                    >
-                      Seu valor real
-                    </span>
+
+                    {/* Toggle Switch Entre os Dois Modos */}
+                    <div className="inline-flex items-center p-1 bg-white/90 backdrop-blur-xs rounded-xl border border-slate-200/90 shadow-2xs self-start sm:self-auto gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setBalanceViewMode("cash")}
+                        className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                          isCashMode
+                            ? "bg-slate-900 text-white shadow-2xs"
+                            : "text-slate-500 hover:text-slate-900"
+                        }`}
+                        title="Ver saldo real que você tem hoje no banco menos a fatura"
+                      >
+                        Caixa Hoje
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBalanceViewMode("projection")}
+                        className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                          !isCashMode
+                            ? "bg-slate-900 text-white shadow-2xs"
+                            : "text-slate-500 hover:text-slate-900"
+                        }`}
+                        title="Ver projeção considerando a entrada do próximo salário"
+                      >
+                        Projeção + Salário
+                      </button>
+                    </div>
                   </div>
 
                   {/* Valor Principal Gigante com Centavos Menores */}
                   <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                          freeBalance < 0
+                            ? "bg-rose-100/90 text-rose-800 border-rose-200"
+                            : "bg-emerald-100/90 text-emerald-800 border-emerald-200"
+                        }`}
+                      >
+                        {isCashMode
+                          ? freeBalance < 0
+                            ? "Déficit atual no banco"
+                            : "Caixa positivo hoje"
+                          : "Previsão com salário previsto"}
+                      </span>
+                    </div>
+
                     <div
                       className={`flex items-baseline tracking-tight font-extrabold ${
                         freeBalance < 0 ? "text-rose-700" : "text-emerald-800"
@@ -1298,8 +1366,11 @@ export default function DashboardPage() {
                           : "text-emerald-900/75"
                       }`}
                     >
-                      É o que sobra no planejamento após reservar o dinheiro da
-                      fatura e das contas fixas.
+                      {isCashMode
+                        ? freeBalance < 0
+                          ? `Se você fosse quitar sua fatura e contas hoje, faltariam ${formatCurrency(Math.abs(freeBalance))} no banco (sem contar salário futuro).`
+                          : "É o que você tem sobrando no bolso hoje após reservar o valor da fatura e contas pendentes."
+                        : "É o que sobra no planejamento após a entrada do salário previsto e reserva das faturas e contas fixas."}
                     </p>
                   </div>
 
@@ -1312,7 +1383,7 @@ export default function DashboardPage() {
                     }`}
                   />
 
-                  {/* Referência Diária */}
+                  {/* Referência Diária / Orientação */}
                   <div className="flex items-center gap-3.5">
                     <div
                       className={`h-10 w-10 rounded-xl bg-white border flex items-center justify-center shrink-0 shadow-2xs ${
@@ -1324,21 +1395,29 @@ export default function DashboardPage() {
                       <Calendar className="h-4 w-4" />
                     </div>
                     <div>
-                      <p className="text-xs font-bold text-slate-900">
-                        Uma referência: {formatCurrency(proj.daily_budget)} por
-                        dia
-                      </p>
-                      <p
-                        className={`text-xs ${
-                          freeBalance < 0
-                            ? "text-rose-700/80"
-                            : "text-emerald-700/80"
-                        }`}
-                      >
-                        {proj.days_remaining && proj.days_remaining > 0
-                          ? `Para os próximos ${proj.days_remaining} dias até o fechamento da fatura.`
-                          : "Distribuído até o fechamento da fatura."}
-                      </p>
+                      {freeBalance < 0 ? (
+                        <>
+                          <p className="text-xs font-bold text-rose-900">
+                            Sem margem para novos gastos no caixa atual
+                          </p>
+                          <p className="text-xs text-rose-700/80">
+                            {isCashMode
+                              ? "Aguarde a entrada do salário para reequilibrar o caixa."
+                              : "Contas superam o salário previsto."}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xs font-bold text-slate-900">
+                            Uma referência: {formatCurrency(activeDailyBudget)} por dia
+                          </p>
+                          <p className="text-xs text-emerald-700/80">
+                            {proj?.days_remaining && proj.days_remaining > 0
+                              ? `Para os próximos ${proj.days_remaining} dias até o fechamento da fatura.`
+                              : "Distribuído até o fechamento da fatura."}
+                          </p>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1348,29 +1427,37 @@ export default function DashboardPage() {
                   <Clock className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
                   <p className="text-xs text-slate-600 leading-relaxed">
                     {freeBalance < 0 ? (
-                      <>
-                        <strong className="font-semibold text-slate-900">
-                          Atenção ao limite do mês.
-                        </strong>{" "}
-                        Suas contas superam a renda prevista em{" "}
-                        {formatCurrency(Math.abs(freeBalance))}. Evite novos
-                        parcelamentos.
-                      </>
+                      isCashMode ? (
+                        <>
+                          <strong className="font-semibold text-slate-900">
+                            Atenção ao fluxo de caixa imediato.
+                          </strong>{" "}
+                          Seu saldo em conta + caixinhas ({formatCurrency(immediateAvailable)}) não cobre o total de compromissos ({formatCurrency(totalCommitments)}). Alterne para <strong>Projeção + Salário</strong> para ver o cenário após a entrada da renda.
+                        </>
+                      ) : (
+                        <>
+                          <strong className="font-semibold text-slate-900">
+                            Atenção ao limite do mês.
+                          </strong>{" "}
+                          Suas contas superam a renda prevista em{" "}
+                          {formatCurrency(Math.abs(freeBalance))}. Evite novos parcelamentos.
+                        </>
+                      )
                     ) : commitmentPct >= 80 ? (
                       <>
                         <strong className="font-semibold text-slate-900">
                           Vá com calma nas próximas compras.
                         </strong>{" "}
-                        Quase toda a renda já tem destino. Esse valor é uma
-                        previsão, não o saldo do banco.
+                        Quase toda a renda já tem destino. {isCashMode ? "Este é o dinheiro real restante no banco." : "Esse valor é uma previsão, não o saldo do banco."}
                       </>
                     ) : (
                       <>
                         <strong className="font-semibold text-slate-900">
-                          Planejamento equilibrado.
+                          {isCashMode ? "Caixa positivo hoje." : "Planejamento equilibrado."}
                         </strong>{" "}
-                        Suas contas fixas e cartão estão dentro de uma margem
-                        segura da sua renda.
+                        {isCashMode
+                          ? "Você tem dinheiro suficiente no banco para cobrir todos os compromissos imediatos."
+                          : "Suas contas fixas e cartão estão dentro de uma margem segura da sua renda."}
                       </>
                     )}
                   </p>
@@ -1413,7 +1500,7 @@ export default function DashboardPage() {
                         <div>
                           <div className="flex items-center gap-2">
                             <p className="text-xs font-semibold text-slate-800">
-                              Saldo inicial + salário
+                              {isCashMode ? "Dinheiro em conta hoje" : "Saldo inicial + salário"}
                             </p>
                             <button
                               onClick={() => setIsCaixinhaModalOpen(true)}
@@ -1457,13 +1544,23 @@ export default function DashboardPage() {
                             </div>
                           ) : (
                             <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
-                              <span>
-                                Conta {formatCurrency(proj.bank_balance)}
-                                {proj.caixinhas_liquid_total > 0 && (
-                                  <> + Caixinha {formatCurrency(proj.caixinhas_liquid_total)}</>
-                                )}
-                                {" "}+ Salário {formatCurrency(proj.salary)}
-                              </span>
+                              {isCashMode ? (
+                                <span>
+                                  Conta {formatCurrency(proj.bank_balance)}
+                                  {proj.caixinhas_liquid_total > 0 && (
+                                    <> + Caixinha {formatCurrency(proj.caixinhas_liquid_total)}</>
+                                  )}
+                                  <span className="text-slate-400/80"> • sem salário</span>
+                                </span>
+                              ) : (
+                                <span>
+                                  Conta {formatCurrency(proj.bank_balance)}
+                                  {proj.caixinhas_liquid_total > 0 && (
+                                    <> + Caixinha {formatCurrency(proj.caixinhas_liquid_total)}</>
+                                  )}
+                                  {" "}+ Salário {formatCurrency(proj.salary)}
+                                </span>
+                              )}
                               <button
                                 onClick={() => setIsEditingSalary(true)}
                                 className="text-slate-400 hover:text-slate-700 underline decoration-dotted"
@@ -1476,7 +1573,7 @@ export default function DashboardPage() {
                         </div>
                       </div>
                       <span className="text-xs font-bold text-slate-900 tabular-nums">
-                        {formatCurrency(proj.total_available)}
+                        {formatCurrency(activeTotalAvailable)}
                       </span>
                     </div>
 
@@ -1536,11 +1633,11 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Rodapé: Sobra para você + Barra Bicolor */}
+                {/* Rodapé: Sobra para você / Balanço de Caixa + Barra Bicolor */}
                 <div className="pt-5 mt-5 border-t border-slate-100 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-900">
-                      Sobra para você
+                      {isCashMode ? "Balanço de Caixa Hoje" : "Sobra para você"}
                     </span>
                     <span
                       className={`text-base font-extrabold tabular-nums ${
@@ -1551,17 +1648,23 @@ export default function DashboardPage() {
                     </span>
                   </div>
 
-                  {/* Barra de Progresso Bicolor estilo Figma */}
-                  <div className="h-2 w-full rounded-full bg-emerald-200 overflow-hidden flex">
+                  {/* Barra de Progresso Bicolor */}
+                  <div className={`h-2 w-full rounded-full overflow-hidden flex ${freeBalance < 0 ? "bg-rose-100" : "bg-emerald-200"}`}>
                     <div
-                      className="h-full bg-slate-800 transition-all duration-500"
+                      className={`h-full transition-all duration-500 ${
+                        freeBalance < 0 ? "bg-rose-600" : "bg-slate-800"
+                      }`}
                       style={{ width: `${commitmentPct}%` }}
                     />
                   </div>
 
                   <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium">
                     <span>{commitmentPct.toFixed(1).replace(".", ",")}% comprometido</span>
-                    <span>{freePct.toFixed(1).replace(".", ",")}% livre</span>
+                    <span>
+                      {freeBalance < 0
+                        ? `Déficit de ${formatCurrency(Math.abs(freeBalance))}`
+                        : `${freePct.toFixed(1).replace(".", ",")}% livre`}
+                    </span>
                   </div>
                 </div>
               </div>
