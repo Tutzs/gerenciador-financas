@@ -294,7 +294,7 @@ export default function DashboardPage() {
   const [billFormName, setBillFormName] = useState<string>("");
   const [billFormAmount, setBillFormAmount] = useState<string>("");
   const [billFormDueDay, setBillFormDueDay] = useState<number>(10);
-  const [billFormCategory, setBillFormCategory] = useState<string>("Família");
+  const [billFormCategory, setBillFormCategory] = useState<string>("Moradia");
   const [savingBill, setSavingBill] = useState<boolean>(false);
 
   // Metas Financeiras (Aba 4)
@@ -2825,7 +2825,7 @@ export default function DashboardPage() {
                       type="text"
                       value={customBillInput}
                       onChange={(e) => setCustomBillInput(e.target.value)}
-                      placeholder={String(proj?.current_bill || "1127.00")}
+                      placeholder={String(proj?.current_bill || "0.00")}
                       className="w-full px-3 py-1.5 text-sm font-bold bg-white border border-slate-300 rounded-lg"
                     />
                   </div>
@@ -2891,7 +2891,7 @@ export default function DashboardPage() {
                   type="text"
                   value={billFormName}
                   onChange={(e) => setBillFormName(e.target.value)}
-                  placeholder="Ex: Ajuda Pai, Internet Vivo, Conta de Luz"
+                  placeholder="Ex: Aluguel, Internet, Luz, Assinatura"
                   className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200"
                   autoFocus
                 />
@@ -2906,7 +2906,7 @@ export default function DashboardPage() {
                     type="text"
                     value={billFormAmount}
                     onChange={(e) => setBillFormAmount(e.target.value)}
-                    placeholder="320.00"
+                    placeholder="150.00"
                     className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-200"
                   />
                 </div>
@@ -3003,7 +3003,7 @@ export default function DashboardPage() {
                   type="text"
                   value={goalFormName}
                   onChange={(e) => setGoalFormName(e.target.value)}
-                  placeholder="Ex: Reserva de emergência, Viagem, Notebook"
+                  placeholder="Ex: Reserva de emergência, Viagem, Reforma"
                   className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200"
                   autoFocus
                 />
@@ -3018,7 +3018,7 @@ export default function DashboardPage() {
                     type="text"
                     value={goalFormCurrent}
                     onChange={(e) => setGoalFormCurrent(e.target.value)}
-                    placeholder="900.00"
+                    placeholder="0.00"
                     className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-200"
                   />
                 </div>
@@ -3030,7 +3030,7 @@ export default function DashboardPage() {
                     type="text"
                     value={goalFormTarget}
                     onChange={(e) => setGoalFormTarget(e.target.value)}
-                    placeholder="5000.00"
+                    placeholder="1000.00"
                     className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-200"
                   />
                 </div>
