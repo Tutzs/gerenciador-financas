@@ -35,6 +35,7 @@ import {
   HelpCircle,
   PiggyBank,
   Box,
+  Settings,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -329,6 +330,15 @@ export default function DashboardPage() {
   const [customBillInput, setCustomBillInput] = useState<string>("1127");
   const [savingCardSettings, setSavingCardSettings] = useState<boolean>(false);
 
+  // Configurações Globais (Nome e Pluggy)
+  const [userName, setUserName] = useState<string>("");
+  const [pluggyConfigured, setPluggyConfigured] = useState<boolean>(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
+  const [settingsFormName, setSettingsFormName] = useState<string>("");
+  const [settingsFormClientId, setSettingsFormClientId] = useState<string>("");
+  const [settingsFormClientSecret, setSettingsFormClientSecret] = useState<string>("");
+  const [savingSettings, setSavingSettings] = useState<boolean>(false);
+
   // Filtros de Transações
   const [period, setPeriod] = useState<"current_month" | "future" | "all">(
     "current_month"
@@ -373,12 +383,13 @@ export default function DashboardPage() {
         params.set("search", searchQuery.trim());
       }
 
-      const [metricsRes, txRes, recRes, goalsRes, caixinhasRes] = await Promise.all([
+      const [metricsRes, txRes, recRes, goalsRes, caixinhasRes, settingsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/metrics`),
         fetch(`${API_BASE_URL}/transactions?${params.toString()}`),
         fetch(`${API_BASE_URL}/recurring-bills`),
         fetch(`${API_BASE_URL}/goals`),
         fetch(`${API_BASE_URL}/caixinhas`),
+        fetch(`${API_BASE_URL}/settings`),
       ]);
 
       if (!metricsRes.ok || !txRes.ok) {
@@ -392,6 +403,13 @@ export default function DashboardPage() {
       setTransactions(txData.items);
       setTotalCount(txData.total);
       setTotalPages(txData.total_pages);
+
+      if (settingsRes && settingsRes.ok) {
+        const sData = await settingsRes.json();
+        setUserName(sData.user_name || "");
+        setSettingsFormName(sData.user_name || "");
+        setPluggyConfigured(Boolean(sData.pluggy_configured));
+      }
 
       if (recRes.ok) {
         const recData: RecurringBillsSummary = await recRes.json();
@@ -783,6 +801,30 @@ export default function DashboardPage() {
     }
   };
 
+  const handleSaveSettings = async () => {
+    setSavingSettings(true);
+    try {
+      const body: Record<string, string> = { user_name: settingsFormName.trim() };
+      if (settingsFormClientId.trim()) body.pluggy_client_id = settingsFormClientId.trim();
+      if (settingsFormClientSecret.trim()) body.pluggy_client_secret = settingsFormClientSecret.trim();
+
+      const res = await fetch(`${API_BASE_URL}/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        setUserName(settingsFormName.trim());
+        setIsSettingsModalOpen(false);
+        fetchDashboardData();
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   // Salvar categoria de transação
   const handleSaveCategory = async (txId: number) => {
     if (!editCategoryValue.trim()) {
@@ -995,17 +1037,28 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex items-center gap-2.5">
-              {/* Badge Open Finance Ativo */}
-              <a
-                href="http://localhost:8000/connect"
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Gerenciar conexão Open Finance (Pluggy)"
-                className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/70 hover:bg-emerald-100/70 transition"
-              >
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Open Finance conectado</span>
-              </a>
+              {/* Status Open Finance / Botão Conectar */}
+              {pluggyConfigured ? (
+                <a
+                  href="/connect"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Gerenciar conexão Open Finance (Pluggy)"
+                  className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/70 hover:bg-emerald-100/70 transition"
+                >
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Open Finance ativo</span>
+                </a>
+              ) : (
+                <button
+                  onClick={() => setIsSettingsModalOpen(true)}
+                  title="Configurar chaves da Pluggy e conectar seu banco"
+                  className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 transition shadow-2xs animate-pulse"
+                >
+                  <span>🔌</span>
+                  <span>Conectar Banco</span>
+                </button>
+              )}
 
               {/* Botão Sincronizar */}
               <button
@@ -1019,6 +1072,15 @@ export default function DashboardPage() {
                   }`}
                 />
                 <span>{syncing ? "Sincronizando..." : "Sincronizar"}</span>
+              </button>
+
+              {/* Botão Configurações */}
+              <button
+                onClick={() => setIsSettingsModalOpen(true)}
+                title="Configurações do sistema"
+                className="p-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition shadow-2xs"
+              >
+                <Settings className="h-3.5 w-3.5" />
               </button>
 
               {/* CTA Planejar um gasto */}
@@ -1136,9 +1198,18 @@ export default function DashboardPage() {
                 <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
                   SEU DINHEIRO, SEM COMPLICAÇÃO
                 </p>
-                <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 mt-1">
-                  Tudo sob controle, Ian.
-                </h1>
+                <div className="flex items-center gap-2 mt-1">
+                  <h1 className="text-3xl font-extrabold tracking-tight text-slate-950">
+                    Tudo sob controle{userName ? `, ${userName}` : ""}.
+                  </h1>
+                  <button
+                    onClick={() => setIsSettingsModalOpen(true)}
+                    className="p-1 text-slate-300 hover:text-slate-600 rounded-md transition"
+                    title="Alterar seu nome ou credenciais"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                </div>
                 <p className="text-sm text-slate-500 mt-0.5">
                   Primeiro as contas. Depois, seus planos.
                 </p>
@@ -3236,6 +3307,145 @@ export default function DashboardPage() {
                 className="px-4 py-2 text-xs font-bold text-white bg-slate-950 hover:bg-slate-800 rounded-xl"
               >
                 Concluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 5: CONFIGURAÇÕES DO SISTEMA & OPEN FINANCE                          */}
+      {/* ========================================================================= */}
+      {isSettingsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 border border-slate-200 space-y-5 my-8">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-slate-100 text-slate-700 rounded-xl">
+                  <Settings className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Configurações do Nexo
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Seu perfil e conexão com o Open Finance
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsSettingsModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Campo: Nome */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">
+                  Como quer ser chamado(a):
+                </label>
+                <input
+                  type="text"
+                  value={settingsFormName}
+                  onChange={(e) => setSettingsFormName(e.target.value)}
+                  placeholder="Seu nome ou apelido"
+                  className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200 focus:outline-slate-900"
+                />
+              </div>
+
+              {/* Seção Open Finance / Pluggy */}
+              <div className="p-4 rounded-xl border border-slate-200/80 bg-slate-50/70 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <span>🔌</span> Open Finance (Pluggy API)
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      pluggyConfigured
+                        ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                        : "bg-amber-100 text-amber-800 border border-amber-200"
+                    }`}
+                  >
+                    {pluggyConfigured ? "Chaves configuradas" : "Não configurado"}
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-slate-600">
+                      Client ID da Pluggy:
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsFormClientId}
+                      onChange={(e) => setSettingsFormClientId(e.target.value)}
+                      placeholder={pluggyConfigured ? "•••••••••••••••• (já configurado)" : "Cole seu Client ID"}
+                      className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-mono"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-slate-600">
+                      Client Secret da Pluggy:
+                    </label>
+                    <input
+                      type="password"
+                      value={settingsFormClientSecret}
+                      onChange={(e) => setSettingsFormClientSecret(e.target.value)}
+                      placeholder={pluggyConfigured ? "•••••••••••••••• (já configurado)" : "Cole seu Client Secret"}
+                      className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 bg-white font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-slate-500 leading-relaxed pt-1">
+                  Obtenha suas credenciais gratuitas no{" "}
+                  <a
+                    href="https://dashboard.pluggy.ai"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-600 font-bold underline inline-flex items-center gap-0.5"
+                  >
+                    dashboard.pluggy.ai
+                    <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                </div>
+              </div>
+
+              {/* Botão de abrir o widget de conexão do banco se as chaves estiverem salvas */}
+              {pluggyConfigured && (
+                <div className="pt-1">
+                  <a
+                    href="/connect"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-2.5 px-3 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold transition flex items-center justify-center gap-2"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 text-emerald-700" />
+                    <span>Conectar / Trocar Banco (Widget Pluggy)</span>
+                  </a>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsSettingsModalOpen(false)}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSettings}
+                disabled={savingSettings}
+                className="px-4 py-2 text-xs font-bold text-white bg-slate-950 hover:bg-slate-800 disabled:opacity-50 rounded-xl"
+              >
+                {savingSettings ? "Salvando..." : "Salvar Configurações"}
               </button>
             </div>
           </div>

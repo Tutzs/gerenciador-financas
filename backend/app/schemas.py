@@ -91,6 +91,20 @@ class CaixinhaResponse(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+class AppSettingsResponse(BaseModel):
+    user_name: str = ""
+    user_salary: float = 0.0
+    pluggy_configured: bool = False
+    pluggy_client_id: str = ""
+    pluggy_item_id: Optional[str] = None
+
+
+class AppSettingsUpdate(BaseModel):
+    user_name: Optional[str] = None
+    pluggy_client_id: Optional[str] = None
+    pluggy_client_secret: Optional[str] = None
+
+
 class CaixinhaUpdate(BaseModel):
     balance: Optional[float] = None
     include_in_free_balance: Optional[bool] = None

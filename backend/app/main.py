@@ -19,6 +19,8 @@ from app.database import Base, engine, get_db
 from app.models import Account, Transaction, TransactionType, RecurringBill, FinancialGoal, Caixinha
 from app.schemas import (
     AccountResponse,
+    AppSettingsResponse,
+    AppSettingsUpdate,
     CaixinhaCreate,
     CaixinhaResponse,
     CaixinhaUpdate,
@@ -79,7 +81,13 @@ def sync_pluggy_data(
     Autentica na Pluggy via CLIENT_ID e CLIENT_SECRET, busca contas e transações
     associadas ao PLUGGY_ITEM_ID do .env e executa upsert no banco de dados.
     """
-    client = PluggyClient()
+    cid, sec, iid = get_pluggy_credentials(db)
+    if not cid or not sec:
+        raise HTTPException(
+            status_code=400,
+            detail="Credenciais da Pluggy não configuradas. Acesse as configurações no topo para conectar seu banco.",
+        )
+    client = PluggyClient(client_id=cid, client_secret=sec, item_id=iid or None)
     try:
         result = client.sync_to_database(db=db, date_from=date_from)
         return SyncResponse(
@@ -673,21 +681,6 @@ def list_recurring_bills(db: Session = Depends(get_db)):
         .all()
     )
 
-    # Se estiver vazio na primeira chamada, insere a conta padrão do pai
-    if not bills:
-        seed_bill = RecurringBill(
-            name="Ajuda Pai",
-            amount=320.00,
-            due_day=10,
-            category="Família",
-            is_active=1,
-            last_paid_month=None,
-        )
-        db.add(seed_bill)
-        db.commit()
-        db.refresh(seed_bill)
-        bills = [seed_bill]
-
     items = [
         RecurringBillResponse(
             id=b.id,
@@ -1060,17 +1053,174 @@ def delete_caixinha(caixinha_id: int, db: Session = Depends(get_db)):
     return {"status": "success", "message": "Caixinha excluída com sucesso."}
 
 
+def get_pluggy_credentials(db: Session) -> tuple[str, str, str]:
+    """Recupera client_id, client_secret e item_id do banco ou das variáveis de ambiente."""
+    cid = os.getenv("PLUGGY_CLIENT_ID", "").strip()
+    sec = os.getenv("PLUGGY_CLIENT_SECRET", "").strip()
+    iid = os.getenv("PLUGGY_ITEM_ID", "").strip()
+
+    try:
+        rows = db.execute(
+            text(
+                "SELECT key, value FROM app_settings "
+                "WHERE key IN ('pluggy_client_id', 'pluggy_client_secret', 'pluggy_item_id')"
+            )
+        ).fetchall()
+        db_map = {r[0]: r[1] for r in rows}
+        if not cid and db_map.get("pluggy_client_id"):
+            cid = db_map["pluggy_client_id"].strip()
+        if not sec and db_map.get("pluggy_client_secret"):
+            sec = db_map["pluggy_client_secret"].strip()
+        if not iid and db_map.get("pluggy_item_id"):
+            iid = db_map["pluggy_item_id"].strip()
+    except Exception:
+        pass
+
+    return cid, sec, iid
+
+
+@app.get("/api/v1/settings", response_model=AppSettingsResponse)
+def get_app_settings(db: Session = Depends(get_db)):
+    """Retorna as configurações do aplicativo (nome do usuário e status da Pluggy)."""
+    try:
+        rows = db.execute(text("SELECT key, value FROM app_settings")).fetchall()
+        settings_map = {r[0]: r[1] for r in rows}
+    except Exception:
+        settings_map = {}
+
+    cid, sec, iid = get_pluggy_credentials(db)
+    user_salary = float(settings_map.get("user_salary", 0.0) or 0.0)
+    user_name = settings_map.get("user_name", "")
+
+    return AppSettingsResponse(
+        user_name=user_name,
+        user_salary=user_salary,
+        pluggy_configured=bool(cid and sec),
+        pluggy_client_id=cid[:8] + "..." if cid else "",
+        pluggy_item_id=iid or None,
+    )
+
+
+@app.post("/api/v1/settings")
+def update_app_settings(payload: AppSettingsUpdate, db: Session = Depends(get_db)):
+    """Atualiza as configurações do aplicativo (nome do usuário, credenciais da Pluggy)."""
+    if payload.user_name is not None:
+        name_clean = payload.user_name.strip()
+        db.execute(
+            text(
+                "INSERT INTO app_settings (key, value) VALUES ('user_name', :val) "
+                "ON CONFLICT(key) DO UPDATE SET value = :val"
+            ),
+            {"val": name_clean},
+        )
+
+    if payload.pluggy_client_id is not None:
+        cid_clean = payload.pluggy_client_id.strip()
+        db.execute(
+            text(
+                "INSERT INTO app_settings (key, value) VALUES ('pluggy_client_id', :val) "
+                "ON CONFLICT(key) DO UPDATE SET value = :val"
+            ),
+            {"val": cid_clean},
+        )
+        os.environ["PLUGGY_CLIENT_ID"] = cid_clean
+
+    if payload.pluggy_client_secret is not None:
+        sec_clean = payload.pluggy_client_secret.strip()
+        db.execute(
+            text(
+                "INSERT INTO app_settings (key, value) VALUES ('pluggy_client_secret', :val) "
+                "ON CONFLICT(key) DO UPDATE SET value = :val"
+            ),
+            {"val": sec_clean},
+        )
+        os.environ["PLUGGY_CLIENT_SECRET"] = sec_clean
+
+    db.commit()
+    return {"status": "success", "message": "Configurações salvas com sucesso."}
+
 
 @app.get("/connect", response_class=HTMLResponse)
-def get_connect_page():
-    """Gera o Connect Token e exibe a interface visual oficial da Pluggy para conectar o banco."""
-    client_id = os.getenv("PLUGGY_CLIENT_ID", "").strip()
-    client_secret = os.getenv("PLUGGY_CLIENT_SECRET", "").strip()
+def get_connect_page(db: Session = Depends(get_db)):
+    """Gera o Connect Token e exibe o widget oficial da Pluggy ou formulário de configuração."""
+    client_id, client_secret, _ = get_pluggy_credentials(db)
 
     if not client_id or not client_secret:
         return HTMLResponse(
-            "<h2>Erro: PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET não configurados no .env</h2>",
-            status_code=500,
+            """<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Configurar Open Finance - Nexo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex items-center justify-center p-4 font-sans">
+  <div class="max-w-md w-full bg-slate-800 rounded-2xl shadow-2xl border border-slate-700 p-8 space-y-6">
+    <div class="text-center space-y-2">
+      <div class="h-12 w-12 rounded-2xl bg-indigo-500/20 text-indigo-400 mx-auto flex items-center justify-center text-2xl font-bold">
+        🔌
+      </div>
+      <h1 class="text-xl font-extrabold text-white">Conectar Open Finance</h1>
+      <p class="text-xs text-slate-400">
+        Insira suas credenciais da API Pluggy para conectar sua conta bancária oficial.
+      </p>
+    </div>
+
+    <form id="pluggy-form" class="space-y-4">
+      <div class="space-y-1">
+        <label class="text-xs font-bold text-slate-300">Client ID da Pluggy:</label>
+        <input type="text" id="client_id" required placeholder="Cole seu Client ID aqui"
+               class="w-full px-3 py-2 text-xs rounded-xl bg-slate-900 border border-slate-700 text-slate-100 focus:outline-indigo-500 font-mono">
+      </div>
+      <div class="space-y-1">
+        <label class="text-xs font-bold text-slate-300">Client Secret da Pluggy:</label>
+        <input type="password" id="client_secret" required placeholder="Cole seu Client Secret aqui"
+               class="w-full px-3 py-2 text-xs rounded-xl bg-slate-900 border border-slate-700 text-slate-100 focus:outline-indigo-500 font-mono">
+      </div>
+      <div class="text-[11px] text-slate-400 bg-slate-900/60 p-3 rounded-xl border border-slate-700/60 leading-relaxed">
+        💡 Ainda não tem as chaves? Crie sua conta grátis em <a href="https://dashboard.pluggy.ai" target="_blank" class="text-indigo-400 font-bold underline">dashboard.pluggy.ai</a> e copie na aba "API Credentials".
+      </div>
+      <button type="submit" id="btn-submit"
+              class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition">
+        Salvar e Abrir Conexão
+      </button>
+      <div id="status-msg" class="text-xs text-center font-medium hidden"></div>
+    </form>
+  </div>
+
+  <script>
+    document.getElementById('pluggy-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-submit');
+      const status = document.getElementById('status-msg');
+      btn.disabled = true;
+      btn.innerText = 'Salvando e autenticando...';
+      status.className = 'text-xs text-center font-medium hidden';
+
+      const cid = document.getElementById('client_id').value.trim();
+      const sec = document.getElementById('client_secret').value.trim();
+
+      try {
+        const res = await fetch('/api/v1/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pluggy_client_id: cid, pluggy_client_secret: sec }),
+        });
+        if (!res.ok) throw new Error('Falha ao salvar credenciais.');
+        window.location.reload();
+      } catch (err) {
+        btn.disabled = false;
+        btn.innerText = 'Salvar e Abrir Conexão';
+        status.className = 'text-xs text-center font-medium text-rose-400 block';
+        status.innerText = err.message || 'Erro ao conectar.';
+      }
+    });
+  </script>
+</body>
+</html>
+""",
+            status_code=200,
         )
 
     # 1. Autenticação na Pluggy
@@ -1217,9 +1367,20 @@ def save_connected_item(
             new_lines.append(f"PLUGGY_ITEM_ID={new_item_id}")
         root_env.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
+    # Salva no banco app_settings para persistência sem depender de .env
+    db.execute(
+        text(
+            "INSERT INTO app_settings (key, value) VALUES ('pluggy_item_id', :val) "
+            "ON CONFLICT(key) DO UPDATE SET value = :val"
+        ),
+        {"val": new_item_id},
+    )
+    db.commit()
+
     # Dispara a sincronização imediatamente
     try:
-        client = PluggyClient(item_id=new_item_id)
+        cid, sec, _ = get_pluggy_credentials(db)
+        client = PluggyClient(client_id=cid, client_secret=sec, item_id=new_item_id)
         result = client.sync_to_database(db=db)
         return {
             "status": "success",
