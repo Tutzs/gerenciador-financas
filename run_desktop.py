@@ -1,7 +1,6 @@
 """
 Launcher Desktop do Nexo - Gerenciador de Finanças Pessoais.
-Exibe tela de carregamento (Splash com barra de progresso), inicia o FastAPI
-e abre a interface do usuário quando o servidor estiver 100% pronto.
+Inicia o servidor FastAPI com uvicorn e abre a interface do usuário.
 """
 import os
 import sys
@@ -13,19 +12,27 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-# Configuração de diretórios e logs
+print("=" * 60)
+print("  NEXO - GERENCIADOR DE FINANCAS PESSOAIS")
+print("  Iniciando sistema...")
+print("=" * 60)
+
+# 1. Configuração de diretórios e logs
 if getattr(sys, "frozen", False):
     BASE_DIR = sys._MEIPASS
     if sys.platform == "win32":
         DATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / "GerenciadorFinancas"
     else:
         DATA_DIR = Path.home() / ".config" / "GerenciadorFinancas"
+    EXE_DIR = Path(sys.executable).parent
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     DATA_DIR = Path(BASE_DIR) / "backend"
+    EXE_DIR = Path(BASE_DIR)
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = DATA_DIR / "startup.log"
+LOCAL_LOG = EXE_DIR / "nexo_debug.log"
 
 # Garante que os pacotes do backend estejam no PYTHONPATH
 backend_path = os.path.join(BASE_DIR, "backend")
@@ -36,13 +43,27 @@ if BASE_DIR not in sys.path:
 
 
 def log(msg: str):
-    """Escreve mensagem no arquivo de log com timestamp."""
-    try:
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(f"[{timestamp}] {msg}\n")
-    except Exception:
-        pass
+    """Escreve mensagem no console e nos arquivos de log."""
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    formatted = f"[{timestamp}] {msg}"
+    print(formatted)
+    for p in (LOG_FILE, LOCAL_LOG):
+        try:
+            with open(p, "a", encoding="utf-8") as f:
+                f.write(formatted + "\n")
+        except Exception:
+            pass
+
+
+def show_native_error(title: str, message: str):
+    """Exibe pop-up nativo do Windows em caso de erro fatal."""
+    log(f"FALHA: {title} - {message}")
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(0, str(message)[:1000], f"Nexo - {title}", 0x10)
+        except Exception:
+            pass
 
 
 def find_free_port(default_port=8000) -> int:
@@ -66,16 +87,17 @@ def is_server_ready(url: str) -> bool:
 
 def run_fastapi_server(port: int, state: dict):
     """Executa o servidor FastAPI com uvicorn em thread secundária."""
-    log(f"Iniciando thread do FastAPI na porta {port}...")
+    log(f"[1/3] Carregando FastAPI e banco de dados na porta {port}...")
     try:
         from app.main import app
         import uvicorn
 
+        log("[2/3] Modulos carregados. Iniciando Uvicorn (h11 + asyncio)...")
         config = uvicorn.Config(
             app=app,
             host="127.0.0.1",
             port=port,
-            log_level="warning",
+            log_level="info",
             loop="asyncio",
             http="h11",
             lifespan="on",
@@ -87,40 +109,27 @@ def run_fastapi_server(port: int, state: dict):
         err_details = traceback.format_exc()
         log(f"ERRO FATAL NA INICIALIZACAO DO SERVIDOR:\n{err_details}")
         state["error"] = err_details
+        show_native_error("Erro no Servidor", err_details)
 
 
 def launch_ui(url: str):
-    """Abre o aplicativo em janela nativa (pywebview) ou no navegador padrão."""
-    log(f"Abrindo interface do usuário em: {url}")
-    opened_webview = False
+    """Abre o aplicativo no navegador."""
+    log(f"[3/3] Servidor online! Abrindo navegador em: {url}")
+    webbrowser.open(url)
+    print("\n" + "=" * 60)
+    print(f"  NEXO ESTA RODANDO COM SUCESSO!")
+    print(f"  URL: {url}")
+    print("  (Mantenha esta janela aberta enquanto estiver usando)")
+    print("=" * 60 + "\n")
     try:
-        import webview
-        opened_webview = True
-        webview.create_window(
-            title="Nexo — Gerenciador de Finanças Pessoais",
-            url=url,
-            width=1360,
-            height=880,
-            min_size=(960, 640),
-        )
-        webview.start()
-    except Exception as e:
-        log(f"pywebview indisponivel ({e}), abrindo navegador padrao...")
-        opened_webview = False
-
-    if not opened_webview:
-        webbrowser.open(url)
-        # Mantém processo vivo para atender requisições enquanto navegador estiver aberto
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            pass
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nEncerrando Nexo...")
 
 
 def main():
-    log("=" * 60)
-    log("Iniciando Nexo Desktop Launcher...")
+    log("Iniciando processo principal...")
     port = find_free_port(8000)
     url = f"http://127.0.0.1:{port}"
     state = {"ready": False, "error": None}
@@ -133,11 +142,11 @@ def main():
     )
     server_thread.start()
 
-    # Tenta exibir a janela Splash Screen com Tkinter
+    # Tenta exibir splash Tkinter se disponivel
     splash_shown = False
     try:
         import tkinter as tk
-        from tkinter import ttk, messagebox
+        from tkinter import ttk
 
         root = tk.Tk()
         root.title("Nexo Finanças")
@@ -179,10 +188,8 @@ def main():
             if state.get("error"):
                 root.destroy()
                 log(f"Falha detectada durante splash: {state['error']}")
-                messagebox.showerror(
-                    "Erro ao Iniciar o Nexo",
-                    f"Ocorreu um erro ao iniciar o sistema:\n\n{state['error']}\n\nArquivo de log salvo em:\n{LOG_FILE}",
-                )
+                show_native_error("Erro de Inicializacao", state["error"])
+                input("\nPressione Enter para fechar...")
                 sys.exit(1)
 
             if is_server_ready(url):
@@ -197,7 +204,7 @@ def main():
         root.mainloop()
 
     except Exception as e:
-        log(f"Tkinter indisponivel ou erro na splash ({e}). Seguindo modo headless...")
+        log(f"Tkinter indisponivel ou erro na splash ({e}). Seguindo no console...")
         splash_shown = False
 
     # Fallback se Tkinter não estiver disponível
@@ -207,13 +214,23 @@ def main():
         while time.time() - start_t < max_wait:
             if state.get("error"):
                 log(f"Erro fatal: {state['error']}")
+                show_native_error("Erro de Inicializacao", state["error"])
+                input("\nPressione Enter para fechar...")
                 sys.exit(1)
             if is_server_ready(url):
                 launch_ui(url)
                 return
             time.sleep(0.3)
         log("Timeout de 60s aguardando servidor responder.")
+        show_native_error("Timeout", "O servidor demorou mais de 60 segundos para responder.")
+        input("\nPressione Enter para fechar...")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        err = traceback.format_exc()
+        show_native_error("Excecao Nao Tratada", err)
+        print(err)
+        input("\nPressione Enter para fechar...")
