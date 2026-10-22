@@ -319,7 +319,7 @@ export default function DashboardPage() {
 
   // Configuração do Salário
   const [isEditingSalary, setIsEditingSalary] = useState<boolean>(false);
-  const [salaryInput, setSalaryInput] = useState<string>("1500");
+  const [salaryInput, setSalaryInput] = useState<string>("0");
   const [savingSalary, setSavingSalary] = useState<boolean>(false);
 
   // Configuração do Ciclo e Fatura do Cartão
@@ -327,7 +327,7 @@ export default function DashboardPage() {
   const [closingDayInput, setClosingDayInput] = useState<number>(2);
   const [dueDayInput, setDueDayInput] = useState<number>(10);
   const [billMode, setBillMode] = useState<"auto" | "custom">("auto");
-  const [customBillInput, setCustomBillInput] = useState<string>("1127");
+  const [customBillInput, setCustomBillInput] = useState<string>("0");
   const [savingCardSettings, setSavingCardSettings] = useState<boolean>(false);
 
   // Configurações Globais (Nome e Pluggy)

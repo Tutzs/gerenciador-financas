@@ -109,3 +109,13 @@ class Caixinha(Base):
     )
 
     goal = relationship("FinancialGoal")
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key = Column(String(100), primary_key=True, index=True)
+    value = Column(String(1000), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

@@ -16,7 +16,15 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
 from app.database import Base, engine, get_db
-from app.models import Account, Transaction, TransactionType, RecurringBill, FinancialGoal, Caixinha
+from app.models import (
+    Account,
+    Transaction,
+    TransactionType,
+    RecurringBill,
+    FinancialGoal,
+    Caixinha,
+    AppSetting,
+)
 from app.schemas import (
     AccountResponse,
     AppSettingsResponse,
@@ -47,6 +55,16 @@ from app.services.pluggy_client import PluggyClient, PluggyClientError
 
 # Cria as tabelas automaticamente na inicialização
 Base.metadata.create_all(bind=engine)
+with engine.begin() as conn:
+    conn.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS app_settings ("
+            "key VARCHAR(100) PRIMARY KEY, "
+            "value TEXT, "
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            ")"
+        )
+    )
 
 app = FastAPI(
     title="Personal Finance Manager API",
@@ -450,7 +468,7 @@ def get_dashboard_metrics(
     except Exception:
         settings_map = {}
 
-    user_salary = float(settings_map.get("user_salary", 1500.0) or 1500.0)
+    user_salary = float(settings_map.get("user_salary", 0.0) or 0.0)
     card_closing_day = int(settings_map.get("card_closing_day", 2) or 2)
     card_due_day = int(settings_map.get("card_due_day", 7) or 7)
     custom_bill_str = settings_map.get("custom_bill_amount")
@@ -966,21 +984,17 @@ def list_caixinhas(db: Session = Depends(get_db)):
         ).fetchall()
         detected_names = [r[0].strip() for r in raw_names if r[0] and r[0].strip()]
 
-        if not detected_names:
-            detected_names = ["Alguma coisa que eu quero", "Crédito mês que vem", "Emergência", "Dinheiro"]
-
-        for name in detected_names:
-            init_bal = 41.96 if "Alguma coisa que eu quero" in name else 0.0
-            inc_free = 1 if "Alguma coisa que eu quero" in name else 0
-            cx = Caixinha(
-                name=name,
-                balance=init_bal,
-                include_in_free_balance=inc_free,
-                linked_goal_id=None,
-            )
-            db.add(cx)
-        db.commit()
-        items = db.query(Caixinha).order_by(Caixinha.id.asc()).all()
+        if detected_names:
+            for name in detected_names:
+                cx = Caixinha(
+                    name=name,
+                    balance=0.0,
+                    include_in_free_balance=0,
+                    linked_goal_id=None,
+                )
+                db.add(cx)
+            db.commit()
+            items = db.query(Caixinha).order_by(Caixinha.id.asc()).all()
 
     goals = {g.id: g.name for g in db.query(FinancialGoal).all()}
     return [_format_caixinha(c, goals.get(c.linked_goal_id)) for c in items]
