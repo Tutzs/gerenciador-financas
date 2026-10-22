@@ -96,6 +96,7 @@ interface SalaryProjection {
   bill_cycle_end: string;
   total_available: number;
   free_balance: number;
+  days_remaining?: number;
   commitment_percentage: number;
   daily_budget: number;
   status: "CRITICAL" | "WARNING" | "HEALTHY";
@@ -1326,7 +1327,9 @@ export default function DashboardPage() {
                             : "text-emerald-700/80"
                         }`}
                       >
-                        Se você distribuir esse valor por 30 dias.
+                        {proj.days_remaining && proj.days_remaining > 0
+                          ? `Para os próximos ${proj.days_remaining} dias até o fechamento da fatura.`
+                          : "Distribuído até o fechamento da fatura."}
                       </p>
                     </div>
                   </div>
@@ -1506,18 +1509,20 @@ export default function DashboardPage() {
                         </div>
                         <div>
                           <p className="text-xs font-semibold text-slate-800">
-                            Contas fixas reservadas
+                            Contas fixas pendentes
                           </p>
                           <button
                             onClick={() => setActiveTab("recurring")}
                             className="text-[11px] text-slate-400 hover:text-slate-700 transition text-left"
                           >
-                            Planejamento mensal • ver lista
+                            {proj.recurring_bills_pending === 0 && (proj.recurring_bills_total || 0) > 0
+                              ? "Todas as contas pagas no mês"
+                              : "Planejamento mensal • ver lista"}
                           </button>
                         </div>
                       </div>
                       <span className="text-xs font-bold text-slate-900 tabular-nums">
-                        - {formatCurrency(proj.recurring_bills_total || 0)}
+                        - {formatCurrency(proj.recurring_bills_pending ?? proj.recurring_bills_total ?? 0)}
                       </span>
                     </div>
                   </div>

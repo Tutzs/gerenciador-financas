@@ -86,6 +86,70 @@ def health_check():
     return {"status": "ok"}
 
 
+def sanitize_financial_ledger(db: Session):
+    """
+    Higienização contábil contínua:
+    1. Pagamentos de fatura de cartão:
+       - No banco (DEBIT): 'Pagamento de fatura', 'Pgto fatura', etc.
+       - No cartão (CREDIT): 'Pagamento recebido', etc.
+       Ambos devem ter is_ignored = 1 e category = 'Pagamento de Fatura',
+       pois o gasto real já foi contabilizado compra a compra no cartão.
+    2. Movimentações internas de caixinha / reserva:
+       - 'Dinheiro reservado...', 'Dinheiro retirado...'
+       Devem ter is_ignored = 1 e category = 'Transferência / Reserva'.
+    3. Aplicações e Resgates de Investimentos / Poupança:
+       - 'Aplicação CDB%', 'Resgate CDB%', 'Aplicação RDB%', 'Resgate RDB%', etc.
+       Devem ter is_ignored = 1 e category = 'Investimento / Transferência'.
+    """
+    try:
+        # Faturas
+        db.execute(
+            text(
+                "UPDATE transactions SET is_ignored = 1, category = 'Pagamento de Fatura' "
+                "WHERE ("
+                "   LOWER(description) LIKE '%pagamento de fatura%' "
+                "   OR LOWER(description) LIKE '%pagamento recebido%' "
+                "   OR LOWER(description) LIKE '%pgto fatura%' "
+                "   OR LOWER(description) LIKE '%pagamento de cartao%' "
+                "   OR LOWER(description) LIKE '%pagamento de cartão%' "
+                ") AND (is_ignored = 0 OR category != 'Pagamento de Fatura')"
+            )
+        )
+        # Caixinhas / Reservas
+        db.execute(
+            text(
+                "UPDATE transactions SET is_ignored = 1, category = 'Transferência / Reserva' "
+                "WHERE ("
+                "   LOWER(description) LIKE 'dinheiro reservado%' "
+                "   OR LOWER(description) LIKE 'dinheiro retirado%' "
+                ") AND (is_ignored = 0 OR category != 'Transferência / Reserva')"
+            )
+        )
+        # Aplicações e Resgates (CDB, RDB, Poupança, Fundos)
+        db.execute(
+            text(
+                "UPDATE transactions SET is_ignored = 1, category = 'Investimento / Transferência' "
+                "WHERE ("
+                "   LOWER(description) LIKE '%aplicação cdb%' "
+                "   OR LOWER(description) LIKE '%resgate cdb%' "
+                "   OR LOWER(description) LIKE '%aplicação rdb%' "
+                "   OR LOWER(description) LIKE '%resgate rdb%' "
+                "   OR LOWER(description) LIKE '%aplicacao cdb%' "
+                "   OR LOWER(description) LIKE '%resgate cdb%' "
+                "   OR LOWER(description) LIKE '%aplicacao rdb%' "
+                "   OR LOWER(description) LIKE '%resgate rdb%' "
+                "   OR LOWER(description) LIKE '%aplicação poupança%' "
+                "   OR LOWER(description) LIKE '%resgate poupança%' "
+                "   OR LOWER(description) LIKE '%aplicacao poupanca%' "
+                "   OR LOWER(description) LIKE '%resgate poupanca%' "
+                ") AND (is_ignored = 0 OR category != 'Investimento / Transferência')"
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 @app.post("/api/v1/sync", response_model=SyncResponse)
 def sync_pluggy_data(
     date_from: Optional[str] = Query(
@@ -108,6 +172,7 @@ def sync_pluggy_data(
     client = PluggyClient(client_id=cid, client_secret=sec, item_id=iid or None)
     try:
         result = client.sync_to_database(db=db, date_from=date_from)
+        sanitize_financial_ledger(db)
         return SyncResponse(
             status="success",
             accounts_synced=result["accounts_synced"],
@@ -329,6 +394,8 @@ def get_dashboard_metrics(
     - Despesas agrupadas por categoria
     - Lista de contas vinculadas
     """
+    sanitize_financial_ledger(db)
+
     now = datetime.now(timezone.utc)
     target_year = year if isinstance(year, int) else now.year
     target_month = month if isinstance(month, int) else now.month
@@ -514,7 +581,12 @@ def get_dashboard_metrics(
         current_bill = custom_bill_amount
         is_bill_custom = True
     else:
-        current_bill = dynamic_bill
+        if dynamic_bill > 0:
+            current_bill = dynamic_bill
+        elif credit_float > 0:
+            current_bill = credit_float
+        else:
+            current_bill = 0.0
         is_bill_custom = False
 
     # 7. Contas Fixas / Recorrentes
@@ -543,7 +615,7 @@ def get_dashboard_metrics(
     caixinhas_liquid_float = float(caixinhas_liquid_total)
     caixinhas_total_float = float(caixinhas_total)
 
-    total_commitments = current_bill + rec_total
+    total_commitments = current_bill + rec_pending
     total_available = user_salary + bank_float + caixinhas_liquid_float
     free_balance = total_available - total_commitments
     if total_available > 0:
@@ -553,7 +625,8 @@ def get_dashboard_metrics(
     else:
         commitment_pct = 100.0
 
-    daily_budget = max(0.0, free_balance / 30.0)
+    days_remaining = max(1, (next_closing.date() - now.date()).days)
+    daily_budget = max(0.0, free_balance / float(days_remaining))
 
     if free_balance <= 0:
         salary_status = "CRITICAL"
@@ -578,6 +651,7 @@ def get_dashboard_metrics(
         bill_cycle_end=next_closing.strftime("%d/%m"),
         total_available=round(total_available, 2),
         free_balance=round(free_balance, 2),
+        days_remaining=days_remaining,
         commitment_percentage=round(commitment_pct, 1),
         daily_budget=round(daily_budget, 2),
         status=salary_status,
@@ -951,24 +1025,14 @@ def _format_caixinha(c: Caixinha, goal_name: Optional[str] = None) -> CaixinhaRe
 
 
 def sanitize_reserve_transactions(db: Session):
-    """Marca transações de caixinha (reservado / retirado) como Transferência / Reserva e ignora dos totais de consumo."""
-    try:
-        db.execute(
-            text(
-                "UPDATE transactions SET is_ignored = 1, category = 'Transferência / Reserva' "
-                "WHERE (description LIKE 'Dinheiro reservado%' OR description LIKE 'Dinheiro retirado%') "
-                "AND (is_ignored = 0 OR category != 'Transferência / Reserva')"
-            )
-        )
-        db.commit()
-    except Exception:
-        db.rollback()
+    """Alias para sanitize_financial_ledger."""
+    sanitize_financial_ledger(db)
 
 
 @app.get("/api/v1/caixinhas", response_model=list[CaixinhaResponse])
 def list_caixinhas(db: Session = Depends(get_db)):
     """Lista todas as caixinhas/reservas. Detecta do extrato se tabela estiver vazia."""
-    sanitize_reserve_transactions(db)
+    sanitize_financial_ledger(db)
 
     items = db.query(Caixinha).order_by(Caixinha.id.asc()).all()
     if not items:

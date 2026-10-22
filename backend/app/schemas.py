@@ -76,6 +76,7 @@ class SalaryProjection(BaseModel):
     bill_cycle_end: str = ""
     total_available: float
     free_balance: float
+    days_remaining: int = 30
     commitment_percentage: float
     daily_budget: float
     status: str  # "CRITICAL", "WARNING", "HEALTHY"

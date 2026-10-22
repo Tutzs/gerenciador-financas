@@ -160,6 +160,9 @@ class PluggyClient:
         """
         all_transactions: List[Dict[str, Any]] = []
         next_query: Optional[str] = None
+        seen_cursors: set = set()
+        page_count = 0
+        max_pages = 60
 
         initial_params: Dict[str, Any] = {
             "accountId": pluggy_account_id,
@@ -170,6 +173,10 @@ class PluggyClient:
             initial_params["to"] = date_to
 
         while True:
+            page_count += 1
+            if page_count > max_pages:
+                break
+
             if next_query:
                 if next_query.startswith("?"):
                     request_url = f"{self.BASE_URL}/v2/transactions{next_query}"
@@ -204,8 +211,9 @@ class PluggyClient:
             all_transactions.extend(results)
 
             next_query = payload.get("next")
-            if not next_query:
+            if not next_query or next_query in seen_cursors:
                 break
+            seen_cursors.add(next_query)
 
         return all_transactions
 

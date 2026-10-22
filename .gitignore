@@ -17,6 +17,8 @@ out/
 
 # SQLite / Bancos de Dados Locais (Nunca envie dados financeiros reais ao GitHub)
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 /finance.db
