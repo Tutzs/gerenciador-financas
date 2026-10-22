@@ -49,6 +49,10 @@ hiddenimports = [
     'tkinter',
     'tkinter.ttk',
     'tkinter.messagebox',
+    'webview',
+    'webview.platforms',
+    'webview.platforms.edgechromium',
+    'webview.platforms.winforms',
 ]
 
 a = Analysis(

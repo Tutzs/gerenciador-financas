@@ -113,19 +113,47 @@ def run_fastapi_server(port: int, state: dict):
 
 
 def launch_ui(url: str):
-    """Abre o aplicativo no navegador."""
-    log(f"[3/3] Servidor online! Abrindo navegador em: {url}")
-    webbrowser.open(url)
-    print("\n" + "=" * 60)
-    print(f"  NEXO ESTA RODANDO COM SUCESSO!")
-    print(f"  URL: {url}")
-    print("  (Mantenha esta janela aberta enquanto estiver usando)")
-    print("=" * 60 + "\n")
+    """Abre o aplicativo em janela desktop dedicada (pywebview) ou fallback no navegador."""
+    log(f"[3/3] Servidor online! Abrindo janela desktop do aplicativo...")
+    opened_webview = False
     try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\nEncerrando Nexo...")
+        import webview
+
+        print("\n" + "=" * 60)
+        print("  ABRINDO JANELA DO APLICATIVO NEXO...")
+        print("  (Feche a janela do aplicativo para encerrar o programa)")
+        print("=" * 60 + "\n")
+
+        webview.create_window(
+            title="Nexo — Gerenciador de Finanças Pessoais",
+            url=url,
+            width=1360,
+            height=880,
+            min_size=(960, 640),
+            text_select=True,
+            confirm_close=False,
+        )
+        webview.start(debug=False)
+        opened_webview = True
+    except Exception as exc:
+        log(f"pywebview indisponivel ou falhou ({exc}). Abrindo navegador padrao...")
+        opened_webview = False
+
+    if not opened_webview:
+        webbrowser.open(url)
+        print("\n" + "=" * 60)
+        print(f"  NEXO ESTA RODANDO NO NAVEGADOR!")
+        print(f"  URL: {url}")
+        print("  (Feche esta janela preta quando terminar de usar)")
+        print("=" * 60 + "\n")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+
+    log("Janela encerrada. Finalizando processos do Nexo...")
+    sys.exit(0)
 
 
 def main():
@@ -194,14 +222,19 @@ def main():
 
             if is_server_ready(url):
                 log("Servidor confirmou resposta HTTP 200 com sucesso!")
+                state["ready"] = True
                 root.destroy()
-                launch_ui(url)
+                return
             else:
                 root.after(150, poll_server)
 
         root.after(150, poll_server)
         splash_shown = True
         root.mainloop()
+
+        if state.get("ready"):
+            launch_ui(url)
+            return
 
     except Exception as e:
         log(f"Tkinter indisponivel ou erro na splash ({e}). Seguindo no console...")
